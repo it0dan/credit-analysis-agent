@@ -1,0 +1,29 @@
+# Python environment
+.venv/
+venv/
+ENV/
+env/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Promptfoo results and temp files
+evals/eval-results/
+evals/eval-results.json
+**/eval-results.json
+**/eval-results/
+.promptfoo/
+
+# Development scratch files
+credit-analysis-demo/scratch/
+**/scratch/
+inspect_gateway.py
+inspect_sequential.py
