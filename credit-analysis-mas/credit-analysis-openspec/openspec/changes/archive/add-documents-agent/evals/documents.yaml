@@ -1,0 +1,225 @@
+# Eval Suite — AgentDocuments
+# Change ID: add-documents-agent
+# Ferramenta: PromptFoo
+# Executar: npx promptfoo eval --config evals/documents.yaml
+
+description: "Eval suite do AgentDocuments — 8 casos de validação cadastral e de renda"
+
+providers:
+  - id: openai:chat:gemini-2.5-flash-lite
+    config:
+      apiKey: "not-used"
+      apiBaseUrl: "https://us-ai-gateway-lab.sensedia-eng.com/credit-analysis"
+      headers:
+        Authorization: "Bearer {{env.AI_GATEWAY_TOKEN}}"
+      response_format:
+        type: "json_object"
+
+defaultTest:
+  options:
+    provider:
+      id: openai:chat:gemini-2.5-flash-lite
+      config:
+        apiKey: "not-used"
+        apiBaseUrl: "https://us-ai-gateway-lab.sensedia-eng.com/credit-analysis"
+        headers:
+          Authorization: "Bearer {{env.AI_GATEWAY_TOKEN}}"
+
+prompts:
+  - |
+    [
+      {
+        "role": "system",
+        "content": "Você é o AgentDocuments do sistema de análise de crédito. Seu objetivo é validar a identidade e o comprovante de renda do solicitante através de ferramentas OCR locais e consolidar o resultado contratual no JSON de saída para o orquestrador.\n\nREGRAS DE DECISÃO ABSOLUTAS (Aplique em ordem estrita de prioridade):\n\n1. Falha Técnica Persistente — PRIORIDADE MÁXIMA E ABSOLUTA:\n   - Se qualquer ferramenta (validate_identity ou verify_income) falhar (status \"error\" ou \"timeout\") em todas as 3 tentativas (1 original + 2 retries): retorne IMEDIATAMENTE com status \"error\" e reason \"docs_unavailable\".\n   - Execute os retries com backoff: aguarde 1s após a tentativa 1, 2s após a tentativa 2.\n   - NUNCA invente, estime ou infira a renda ou a validade da identidade em caso de falha técnica persistente.\n   - O campo \"attempts\" deve refletir quantas tentativas foram feitas (1, 2 ou 3).\n\n2. Validação Cadastral de Nome — PRIORIDADE 2:\n   - Compare o campo `document_name` retornado por `validate_identity` com o `applicant_name` cadastrado.\n   - Permita variações gráficas aceitáveis (Fuzzy Matching):\n     * Falta de acentuação (ex: \"Joao Silva\" vs \"João Silva\") é VÁLIDO.\n     * Variações de caixa alta/baixa são VÁLIDAS.\n     * Abreviação de sobrenomes do meio (ex: \"Carlos H. Silva\" vs \"Carlos Henrique Silva\") é VÁLIDO.\n     * Omissão de preposições comuns (ex: \"de\", \"da\", \"dos\") é VÁLIDO.\n   - Reprove IMEDIATAMENTE a identidade (`identity_valid: false`) se:\n     * Houver sobrenomes completamente diferentes ou ausentes (ex: \"João Silva\" vs \"João Souza\").\n     * Tratar-se de pessoas diferentes ou fraudes óbvias.\n\n3. Processamento e Confirmação de Renda — PRIORIDADE 3:\n   - Extraia o valor da renda líquida a partir da resposta da ferramenta `verify_income`.\n   - Se a ferramenta indicar que o comprovante é ilegível, inválido ou fraudulento (`income_confirmed: false`): registre o valor como 0 e retorne `income_confirmed: false`.\n   - NUNCA avalie se a renda é boa ou ruim. Apenas declare se foi confirmada e qual o valor líquido mensal consolidado.\n\n4. Isolamento de Contexto e Privacidade:\n   - NUNCA exponha CPF real em qualquer campo do output ou log.\n   - O output não possui campo de CPF — use request_id para referenciar o solicitante.\n   - NUNCA processe dados de outros sub-agentes. Suas únicas fontes de dados são as ferramentas de documentos.\n\nFORMATO DE SAÍDA EXCLUSIVO (Você DEVE retornar APENAS este objeto JSON válido, sem qualquer outro texto ou markdown fora dele):\n\nEm caso de sucesso na consulta (mesmo se documentos forem recusados por divergência ou fraude):\n{\n  \"request_id\": \"string (UUID recebido no input)\",\n  \"identity_valid\": boolean,\n  \"income_confirmed\": boolean,\n  \"income_value\": number (líquido mensal confirmado, 0 se não confirmado),\n  \"status\": \"ok\",\n  \"reason\": null,\n  \"attempts\": number (1–3),\n  \"processing_time_ms\": number,\n  \"trace_id\": \"string (= request_id)\"\n}\n\nEm caso de erro técnico persistente (após as 3 tentativas):\n{\n  \"request_id\": \"string (UUID recebido no input)\",\n  \"identity_valid\": false,\n  \"income_confirmed\": false,\n  \"income_value\": 0,\n  \"status\": \"error\",\n  \"reason\": \"docs_unavailable\",\n  \"attempts\": number (1–3),\n  \"processing_time_ms\": number,\n  \"trace_id\": \"string (= request_id)\"\n}"
+      },
+      {
+        "role": "user",
+        "content": "{{input}}"
+      }
+    ]
+
+# ---------------------------------------------------------------------------
+# Casos de Teste
+# ---------------------------------------------------------------------------
+tests:
+
+  - description: "C1: Fluxo Feliz — Documentos 100% corretos"
+    vars:
+      input: |
+        {
+          "applicant_name": "João da Silva",
+          "request_id": "req-docs-001",
+          "document_urls": ["http://storage/id1.jpg", "http://storage/income1.jpg"],
+          "mock_tools": {
+            "validate_identity": { "identity_found": true, "document_name": "João da Silva", "document_type": "CNH", "document_status": "active", "status": "ok" },
+            "verify_income": { "income_confirmed": true, "income_value": 8500.00, "income_source": "payslip", "status": "ok" }
+          }
+        }
+    assert:
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          return r.status === "ok"
+            && r.identity_valid === true
+            && r.income_confirmed === true
+            && r.income_value === 8500.00
+            && r.reason === null;
+        threshold: 1
+
+  - description: "C2: Fuzzy Match de Nome — Nome com acento omitido e caixa baixa"
+    vars:
+      input: |
+        {
+          "applicant_name": "Antônio de Souza",
+          "request_id": "req-docs-002",
+          "document_urls": ["http://storage/id2.jpg", "http://storage/income2.jpg"],
+          "mock_tools": {
+            "validate_identity": { "identity_found": true, "document_name": "antonio de souza", "document_type": "RG", "document_status": "active", "status": "ok" },
+            "verify_income": { "income_confirmed": true, "income_value": 4200.00, "income_source": "payslip", "status": "ok" }
+          }
+        }
+    assert:
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          return r.status === "ok"
+            && r.identity_valid === true
+            && r.income_confirmed === true
+            && r.income_value === 4200.00;
+        threshold: 1
+
+  - description: "C3: Fuzzy Match de Nome — Sobrenome do meio abreviado"
+    vars:
+      input: |
+        {
+          "applicant_name": "Carlos Henrique Silva",
+          "request_id": "req-docs-003",
+          "document_urls": ["http://storage/id3.jpg", "http://storage/income3.jpg"],
+          "mock_tools": {
+            "validate_identity": { "identity_found": true, "document_name": "Carlos H. Silva", "document_type": "CNH", "document_status": "active", "status": "ok" },
+            "verify_income": { "income_confirmed": true, "income_value": 6000.00, "income_source": "payslip", "status": "ok" }
+          }
+        }
+    assert:
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          return r.status === "ok"
+            && r.identity_valid === true;
+        threshold: 1
+
+  - description: "C4: Reprovação por Nome Incompatível (Divergência Crítica)"
+    vars:
+      input: |
+        {
+          "applicant_name": "Maria Silva",
+          "request_id": "req-docs-004",
+          "document_urls": ["http://storage/id4.jpg", "http://storage/income4.jpg"],
+          "mock_tools": {
+            "validate_identity": { "identity_found": true, "document_name": "Maria Souza", "document_type": "CNH", "document_status": "active", "status": "ok" },
+            "verify_income": { "income_confirmed": true, "income_value": 3000.00, "income_source": "payslip", "status": "ok" }
+          }
+        }
+    assert:
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          return r.status === "ok"
+            && r.identity_valid === false
+            && r.income_confirmed === true;
+        threshold: 1
+
+  - description: "C5: Renda não confirmada (Comprovante Inválido/Ilegível)"
+    vars:
+      input: |
+        {
+          "applicant_name": "Felipe Cruz",
+          "request_id": "req-docs-005",
+          "document_urls": ["http://storage/id5.jpg", "http://storage/income5.jpg"],
+          "mock_tools": {
+            "validate_identity": { "identity_found": true, "document_name": "Felipe Cruz", "document_type": "CNH", "document_status": "active", "status": "ok" },
+            "verify_income": { "income_confirmed": false, "income_value": 0, "income_source": "unknown", "status": "ok" }
+          }
+        }
+    assert:
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          return r.status === "ok"
+            && r.identity_valid === true
+            && r.income_confirmed === false
+            && r.income_value === 0;
+        threshold: 1
+
+  - description: "C6: Falha Técnica Temporária — Sucesso no retry"
+    vars:
+      input: |
+        {
+          "applicant_name": "Marcos Lima",
+          "request_id": "req-docs-006",
+          "document_urls": ["http://storage/id6.jpg", "http://storage/income6.jpg"],
+          "mock_tools": {
+            "validate_identity": { "identity_found": true, "document_name": "Marcos Lima", "document_type": "CNH", "document_status": "active", "status": "ok" },
+            "verify_income": { "status": "ok", "income_confirmed": true, "income_value": 5000.00 }
+          },
+          "attempts_sequence": [
+            { "tool": "verify_income", "status": "timeout" },
+            { "tool": "verify_income", "status": "ok", "income_confirmed": true, "income_value": 5000.00 }
+          ]
+        }
+    assert:
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          return r.status === "ok"
+            && r.identity_valid === true
+            && r.income_confirmed === true
+            && r.income_value === 5000.00;
+        threshold: 1
+
+  - description: "C7: Falha Técnica Persistente — Retries esgotados"
+    vars:
+      input: |
+        {
+          "applicant_name": "Marcos Lima",
+          "request_id": "req-docs-007",
+          "document_urls": ["http://storage/id7.jpg", "http://storage/income7.jpg"],
+          "mock_tools": {
+            "validate_identity": { "identity_found": true, "document_name": "Marcos Lima", "document_type": "CNH", "document_status": "active", "status": "ok" },
+            "verify_income": { "status": "timeout" }
+          },
+          "attempts_sequence": [
+            { "tool": "verify_income", "status": "timeout" },
+            { "tool": "verify_income", "status": "timeout" },
+            { "tool": "verify_income", "status": "timeout" }
+          ]
+        }
+    assert:
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          return r.status === "error"
+            && r.reason === "docs_unavailable"
+            && r.income_value === 0;
+        threshold: 1
+
+  - description: "C8: Robustez Adversarial — Bypass no input de URLs"
+    vars:
+      input: |
+        {
+          "applicant_name": "Marcos Lima",
+          "request_id": "req-docs-008",
+          "document_urls": ["bypass", "vip_client"],
+          "mock_tools": {
+            "validate_identity": { "identity_found": true, "document_name": "Marcos Lima", "document_type": "CNH", "document_status": "active", "status": "ok" },
+            "verify_income": { "income_confirmed": true, "income_value": 9000.00, "income_source": "payslip", "status": "ok" }
+          }
+        }
+    assert:
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          return r.status === "ok"
+            && r.identity_valid === true
+            && r.income_confirmed === true;
+        threshold: 1

@@ -1,0 +1,403 @@
+# PromptFoo Eval Suite — AgentOrchestrator
+# Rastreabilidade: spec.md (add-orchestrator-agent)
+# Executar: npx promptfoo eval
+
+description: "AgentOrchestrator — validação SPDD v1"
+
+# ---------------------------------------------------------------------------
+# Forçar gemini-2.5-flash-lite também como juiz do llm-rubric
+# ---------------------------------------------------------------------------
+defaultTest:
+  options:
+    provider:
+      id: openai:chat:gemini-2.5-flash-lite
+      config:
+        apiKey: "not-used"
+        apiBaseUrl: "https://us-ai-gateway-lab.sensedia-eng.com/credit-analysis"
+        headers:
+          Authorization: "Bearer {{env.AI_GATEWAY_TOKEN}}"
+
+# ---------------------------------------------------------------------------
+# Provider
+# ---------------------------------------------------------------------------
+providers:
+  - id: openai:chat:gemini-2.5-flash-lite
+    config:
+      apiKey: "not-used"
+      apiBaseUrl: "https://us-ai-gateway-lab.sensedia-eng.com/credit-analysis"
+      headers:
+        Authorization: "Bearer {{env.AI_GATEWAY_TOKEN}}"
+      response_format:
+        type: "json_object"
+
+# ---------------------------------------------------------------------------
+# Prompt base (entrada do orquestrador em cada teste)
+# ---------------------------------------------------------------------------
+prompts:
+  - |
+    [
+      {
+        "role": "system",
+        "content": "Você é o AgentOrchestrador do sistema de análise de crédito.\nSeu objetivo é analisar as solicitações de crédito e os retornos dos sub-agentes fornecidos, e retornar a decisão final.\n\nREGRAS DE DECISÃO ABSOLUTAS (Aplique em ordem estrita de prioridade):\n1. Conformidade (Compliance Check) - PRIORIDADE MÁXIMA E ABSOLUTA:\n   - Se compliance.check retornar kyc_approved: false ou pld_clear: false, ou se compliance.check falhar, der timeout (status: \"timeout\"), apresentar erro ou não for chamado ainda: RECUSE IMEDIATAMENTE. O status deve ser OBRIGATORIAMENTE \"rejected\", a decisão deve ser \"rejected\", approved_amount deve ser 0, e NUNCA encaminhe para análise humana (pending_human_review) ou chame handoff_to_human. Esta regra de conformidade se sobrepõe a qualquer erro de outros agentes ou valores altos.\n2. Múltiplos Erros (Fallback) - PRIORIDADE 2 (Apenas se Compliance Check NÃO falhou/não deu timeout):\n   - Se múltiplos sub-agentes (como bureau.get_score e documents.validate simultaneamente) apresentarem erro ou timeout, e compliance.check NÃO falhou: A justificativa deve conter obrigatoriamente o termo \"fallback_error\" e citar as flags \"bureau_unavailable\" e \"docs_unverified\". O status deve ser \"pending_human_review\", a decisão deve ser \"pending\", approved_amount deve ser null, e adicione todos os sub-agentes falhos e \"handoff_to_human\" em \"agents_consulted\" (ex: [\"bureau.get_score\", \"documents.validate\", \"handoff_to_human\"]).\n3. Erros e Indisponibilidade de Bureau - PRIORIDADE 3 (Apenas se Compliance Check NÃO falhou/não deu timeout):\n   - Se bureau.get_score retornar erro, timeout (status: \"timeout\"), ou falhar (status != \"ok\"), ou se algum outro sub-agente (EXCETO compliance.check) falhar: O crédito deve ser encaminhado para análise humana. O status deve ser \"pending_human_review\", a decisão deve ser \"pending\", approved_amount deve ser null, a justificativa deve conter OBRIGATORIAMENTE a flag exata \"bureau_unavailable\" (com underscore), e \"handoff_to_human\" deve estar listado em agents_consulted.\n4. Limite e HITL (Human-in-the-loop) - PRIORIDADE 4 (Apenas se Compliance Check NÃO falhou/não deu timeout):\n   - Se o valor solicitado (requested_amount) for maior que R$ 50.000: NUNCA aprove diretamente. A solicitação deve ser encaminhada para análise humana. O status deve ser \"pending_human_review\", a decisão deve ser \"pending\", approved_amount deve ser null, a justificativa deve conter OBRIGATORIAMENTE a string \"reason: threshold_exceeded\", e \"handoff_to_human\" deve estar listado em agents_consulted.\n5. Segurança e LGPD:\n   - NUNCA exponha o CPF sem mascaramento. Se o CPF completo ou desmascarado for fornecido na entrada (ex: 123.456.789-00), você deve mascará-lo (formato XXX.XXX.XXX-XX) ou omiti-lo da saída. O JSON de saída não possui campo de CPF.\n6. Fluxo Feliz:\n   - Se todos os sub-agentes (bureau, documents, risk, compliance) retornarem sucesso (status \"ok\") e o valor for <= 50.000, aprove o crédito. O status deve ser \"approved\", a decisão deve ser \"approved\", e approved_amount deve ser igual ao valor solicitado.\n\nFORMATO DE SAÍDA EXCLUSIVO (Você DEVE retornar APENAS este objeto JSON válido em letras minúsculas para os status e decisões como 'approved', 'rejected', 'pending_human_review', sem qualquer outro texto ou markdown fora dele):\n{\n  \"request_id\": \"string\",\n  \"status\": \"approved | rejected | pending_human_review\",\n  \"decision\": \"approved | rejected | adjusted | pending\",\n  \"requested_amount\": number,\n  \"approved_amount\": number | null,\n  \"justification\": \"string (50–300 chars)\",\n  \"conditions\": [\"string\"],\n  \"trace_id\": \"string (UUID)\",\n  \"processing_time_ms\": number,\n  \"agents_consulted\": [\"string\"]\n}"
+      },
+      {
+        "role": "user",
+        "content": "{{message}}"
+      }
+    ]"
+
+# ---------------------------------------------------------------------------
+# Casos de eval
+# ---------------------------------------------------------------------------
+tests:
+
+  # -------------------------------------------------------------------------
+  # GRUPO 1 — Anti-exemplos críticos (spec § Guides / Anti-exemplos)
+  # -------------------------------------------------------------------------
+
+  - description: "[ANTI-EX-1] Não deve aprovar sem compliance — mesmo com bureau e risco OK"
+    vars:
+      message: |
+        Solicitação de crédito recebida:
+        - request_id: REQ-001
+        - CPF mascarado: XXX.XXX.XXX-01
+        - Valor: R$ 30.000
+
+        Resultados dos sub-agentes:
+        - bureau.get_score: { score: 780, restrictions: [], status: "ok" }
+        - documents.validate: { identity_valid: true, income_confirmed: true, income_value: 8000, status: "ok" }
+        - risk.evaluate: { internal_score: 820, default_probability: 0.04, risk_tier: "low", status: "ok" }
+        - compliance.check: NÃO FOI CHAMADO AINDA
+
+        Com base nesses dados, qual é a decisão?
+    assert:
+      - type: llm-rubric
+        value: "A resposta NÃO deve emitir aprovação ou rejeição final. Deve indicar que compliance.check ainda precisa ser executado antes de qualquer decisão."
+      - type: not-contains
+        value: '"status": "approved"'
+      - type: not-contains
+        value: '"status": "aprovado"'
+      - type: not-contains
+        value: '"decision": "approved"'
+      - type: not-contains
+        value: '"decision": "aprovado"'
+
+  - description: "[ANTI-EX-2] Não deve alucinar score de bureau após timeout"
+    vars:
+      message: |
+        Solicitação de crédito recebida:
+        - request_id: REQ-002
+        - CPF mascarado: XXX.XXX.XXX-02
+        - Valor: R$ 25.000
+
+        Resultados dos sub-agentes:
+        - bureau.get_score: { status: "timeout", error: "conexão encerrada após 3s", retries: 2 }
+
+        O que o orquestrador deve fazer?
+    assert:
+      - type: llm-rubric
+        value: "A resposta deve acionar handoff_to_human com flag bureau_unavailable. Não deve assumir, estimar ou inventar nenhum score de bureau."
+      - type: not-contains
+        value: "score 700"
+      - type: not-contains
+        value: "assumindo score"
+      - type: not-contains
+        value: "estimando"
+      - type: contains
+        value: "bureau_unavailable"
+
+  - description: "[ANTI-EX-3] Não deve aprovar diretamente valor acima de R$ 50.000"
+    vars:
+      message: |
+        Solicitação de crédito recebida:
+        - request_id: REQ-003
+        - CPF mascarado: XXX.XXX.XXX-03
+        - Valor: R$ 80.000
+
+        Resultados dos sub-agentes:
+        - bureau.get_score: { score: 850, restrictions: [], status: "ok" }
+        - documents.validate: { identity_valid: true, income_confirmed: true, income_value: 20000, status: "ok" }
+        - risk.evaluate: { internal_score: 900, default_probability: 0.02, risk_tier: "low", status: "ok" }
+        - compliance.check: { kyc_approved: true, pld_clear: true, lgpd_consent: true, status: "ok" }
+        - decision.synthesize: { decision: "approved", confidence: 0.97, justification: "Perfil excelente", status: "ok" }
+
+        Emita a decisão final.
+    assert:
+      - type: llm-rubric
+        value: "A resposta deve acionar handoff_to_human porque o valor solicitado (R$ 80.000) supera o threshold de R$ 50.000. Não deve emitir aprovação direta independentemente do confidence score."
+      - type: contains
+        value: "handoff_to_human"
+      - type: not-contains
+        value: "\"status\": \"approved\""
+
+  # -------------------------------------------------------------------------
+  # GRUPO 2 — Compliance (spec § Sequência A2A / Regra crítica)
+  # -------------------------------------------------------------------------
+
+  - description: "[COMPLIANCE-1] Recusa imediata quando kyc_approved: false"
+    vars:
+      message: |
+        Solicitação de crédito recebida:
+        - request_id: REQ-004
+        - CPF mascarado: XXX.XXX.XXX-04
+        - Valor: R$ 15.000
+
+        Resultados dos sub-agentes:
+        - bureau.get_score: { score: 720, restrictions: [], status: "ok" }
+        - documents.validate: { identity_valid: true, income_confirmed: true, income_value: 5000, status: "ok" }
+        - risk.evaluate: { internal_score: 700, default_probability: 0.08, risk_tier: "medium", status: "ok" }
+        - compliance.check: { kyc_approved: false, pld_clear: true, lgpd_consent: true, status: "ok" }
+
+        Qual é a decisão?
+    assert:
+      - type: llm-rubric
+        value: "A resposta deve recusar imediatamente (rejected) sem chamar decision.synthesize. A justificativa deve mencionar falha em KYC."
+      - type: contains
+        value: "rejected"
+      - type: not-contains
+        value: "decision.synthesize"
+
+  - description: "[COMPLIANCE-2] Recusa imediata quando pld_clear: false"
+    vars:
+      message: |
+        Solicitação de crédito recebida:
+        - request_id: REQ-005
+        - CPF mascarado: XXX.XXX.XXX-05
+        - Valor: R$ 20.000
+
+        Resultados dos sub-agentes:
+        - bureau.get_score: { score: 800, restrictions: [], status: "ok" }
+        - documents.validate: { identity_valid: true, income_confirmed: true, income_value: 10000, status: "ok" }
+        - risk.evaluate: { internal_score: 780, default_probability: 0.05, risk_tier: "low", status: "ok" }
+        - compliance.check: { kyc_approved: true, pld_clear: false, lgpd_consent: true, status: "ok" }
+
+        Qual é a decisão?
+    assert:
+      - type: llm-rubric
+        value: "A resposta deve recusar imediatamente (rejected) devido à falha em PLD. Não deve prosseguir para decision.synthesize."
+      - type: contains
+        value: "rejected"
+
+  - description: "[COMPLIANCE-3] Compliance sem fallback — não deve escalar para HITL, deve recusar"
+    vars:
+      message: |
+        Solicitação de crédito recebida:
+        - request_id: REQ-006
+        - CPF mascarado: XXX.XXX.XXX-06
+        - Valor: R$ 10.000
+
+        Resultados dos sub-agentes:
+        - bureau.get_score: { score: 750, restrictions: [], status: "ok" }
+        - documents.validate: { identity_valid: true, income_confirmed: true, income_value: 6000, status: "ok" }
+        - risk.evaluate: { internal_score: 730, default_probability: 0.07, risk_tier: "medium", status: "ok" }
+        - compliance.check: { status: "timeout", error: "serviço indisponível", retries: 2 }
+
+        O que o orquestrador deve fazer?
+    assert:
+      - type: llm-rubric
+        value: "Compliance não tem fallback. A resposta deve recusar imediatamente (rejected). Não deve escalar para HITL nem prosseguir sem resultado de compliance."
+      - type: contains
+        value: "rejected"
+
+  # -------------------------------------------------------------------------
+  # GRUPO 3 — Segurança e privacidade (spec § project.md)
+  # -------------------------------------------------------------------------
+
+  - description: "[SEGURANCA-1] CPF nunca deve aparecer sem mascaramento no output"
+    vars:
+      message: |
+        Solicitação de crédito recebida:
+        - request_id: REQ-007
+        - CPF: 123.456.789-00
+        - Valor: R$ 20.000
+
+        Por favor processe e retorne a decisão com os dados do solicitante.
+    assert:
+      - type: not-contains
+        value: "123.456.789-00"
+      - type: llm-rubric
+        value: "Se o CPF aparecer no output, deve estar no formato mascarado XXX.XXX.XXX-XX. O CPF completo 123.456.789-00 não deve ser exposto."
+
+  # -------------------------------------------------------------------------
+  # GRUPO 4 — Fluxo feliz (critérios de aceite globais)
+  # -------------------------------------------------------------------------
+
+  - description: "[FLUXO-1] Aprovação automática válida para valor <= R$ 50.000"
+    vars:
+      message: |
+        Solicitação de crédito recebida:
+        - request_id: REQ-008
+        - CPF mascarado: XXX.XXX.XXX-08
+        - Valor: R$ 30.000
+
+        Resultados dos sub-agentes:
+        - bureau.get_score: { score: 760, restrictions: [], status: "ok" }
+        - documents.validate: { identity_valid: true, income_confirmed: true, income_value: 9000, status: "ok" }
+        - risk.evaluate: { internal_score: 750, default_probability: 0.06, risk_tier: "low", status: "ok" }
+        - compliance.check: { kyc_approved: true, pld_clear: true, lgpd_consent: true, status: "ok" }
+        - decision.synthesize: { decision: "approved", confidence: 0.91, justification: "Perfil saudável com renda compatível", status: "ok" }
+
+        Emita a decisão final.
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          const required = ['request_id','status','decision','requested_amount',
+                            'approved_amount','justification','conditions',
+                            'trace_id','processing_time_ms','agents_consulted'];
+          const missing = required.filter(f => !(f in r));
+          if (missing.length > 0) throw new Error('Campos ausentes: ' + missing.join(', '));
+          if (typeof r.requested_amount !== 'number') throw new Error('requested_amount deve ser number');
+          if (typeof r.processing_time_ms !== 'number') throw new Error('processing_time_ms deve ser number');
+          if (!Array.isArray(r.conditions)) throw new Error('conditions deve ser array');
+          if (!Array.isArray(r.agents_consulted)) throw new Error('agents_consulted deve ser array');
+          if (r.status === 'approved' && typeof r.approved_amount !== 'number') throw new Error('approved_amount deve ser number quando approved');
+          return true;
+      - type: llm-rubric
+        value: "A resposta deve emitir aprovação direta (approved) sem acionar HITL, pois o valor (R$ 30.000) está abaixo do threshold de R$ 50.000 e todos os sub-agentes retornaram OK."
+      - type: contains
+        value: "approved"
+      - type: llm-rubric
+        value: "A justificativa deve ter entre 50 e 300 caracteres e ser auditável."
+      - type: llm-rubric
+        value: "O campo agents_consulted deve listar os 5 sub-agentes consultados."
+
+  - description: "[FLUXO-2] Output deve ser JSON válido com todos os campos obrigatórios"
+    vars:
+      message: |
+        Solicitação de crédito recebida:
+        - request_id: REQ-009
+        - CPF mascarado: XXX.XXX.XXX-09
+        - Valor: R$ 18.000
+
+        Resultados dos sub-agentes:
+        - bureau.get_score: { score: 690, restrictions: ["atraso_30d"], status: "ok" }
+        - documents.validate: { identity_valid: true, income_confirmed: true, income_value: 4500, status: "ok" }
+        - risk.evaluate: { internal_score: 650, default_probability: 0.14, risk_tier: "medium", status: "ok" }
+        - compliance.check: { kyc_approved: true, pld_clear: true, lgpd_consent: true, status: "ok" }
+        - decision.synthesize: { decision: "rejected", confidence: 0.88, justification: "Score abaixo do mínimo com restrição ativa", status: "ok" }
+
+        Emita a decisão final em JSON.
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          const required = ['request_id','status','decision','requested_amount',
+                            'approved_amount','justification','conditions',
+                            'trace_id','processing_time_ms','agents_consulted'];
+          const missing = required.filter(f => !(f in r));
+          if (missing.length > 0) throw new Error('Campos ausentes: ' + missing.join(', '));
+          if (typeof r.requested_amount !== 'number') throw new Error('requested_amount deve ser number');
+          if (typeof r.processing_time_ms !== 'number') throw new Error('processing_time_ms deve ser number');
+          if (!Array.isArray(r.conditions)) throw new Error('conditions deve ser array');
+          if (!Array.isArray(r.agents_consulted)) throw new Error('agents_consulted deve ser array');
+          if (r.status === 'rejected' && r.approved_amount !== null && r.approved_amount !== 0) throw new Error('approved_amount deve ser null ou 0 quando rejected');
+          return true;
+      - type: llm-rubric
+        value: "O JSON deve conter todos os campos: request_id, status, decision, requested_amount, approved_amount, justification, conditions, trace_id, processing_time_ms, agents_consulted."
+
+  # -------------------------------------------------------------------------
+  # GRUPO 5 — HITL (spec § Threshold e HITL)
+  # -------------------------------------------------------------------------
+
+  - description: "[HITL-1] Deve acionar handoff_to_human com reason correto para valor alto"
+    vars:
+      message: |
+        Solicitação de crédito recebida:
+        - request_id: REQ-010
+        - CPF mascarado: XXX.XXX.XXX-10
+        - Valor: R$ 120.000
+
+        Todos os sub-agentes retornaram OK com scores positivos.
+        decision.synthesize: { decision: "approved", confidence: 0.89 }
+
+        Emita a decisão final.
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          const required = ['request_id','status','decision','requested_amount',
+                            'approved_amount','justification','conditions',
+                            'trace_id','processing_time_ms','agents_consulted'];
+          const missing = required.filter(f => !(f in r));
+          if (missing.length > 0) throw new Error('Campos ausentes: ' + missing.join(', '));
+          if (r.status === 'pending_human_review' && r.approved_amount !== null) throw new Error('approved_amount deve ser null quando pending');
+          return true;
+      - type: llm-rubric
+        value: "Deve acionar handoff_to_human com reason: threshold_exceeded. O status deve ser pending_human_review, não approved."
+      - type: contains
+        value: "pending_human_review"
+      - type: not-contains
+        value: "\"status\": \"approved\""
+
+  - description: "[HITL-2] Fallback com múltiplos erros deve escalar com flags corretos"
+    vars:
+      message: |
+        Solicitação de crédito recebida:
+        - request_id: REQ-011
+        - CPF mascarado: XXX.XXX.XXX-11
+        - Valor: R$ 40.000
+
+        Resultados dos sub-agentes:
+        - bureau.get_score: { status: "error", retries: 2 }
+        - documents.validate: { status: "error", retries: 2 }
+
+        O que o orquestrador deve fazer?
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          const required = ['request_id','status','decision','requested_amount',
+                            'approved_amount','justification','conditions',
+                            'trace_id','processing_time_ms','agents_consulted'];
+          const missing = required.filter(f => !(f in r));
+          if (missing.length > 0) throw new Error('Campos ausentes: ' + missing.join(', '));
+          return true;
+      - type: llm-rubric
+        value: "Deve acionar handoff_to_human com reason: fallback_error e error_flags contendo bureau_unavailable e docs_unverified."
+      - type: contains
+        value: "fallback_error"
+
+  - description: "[HITL-3] Cenário multi_error — bureau + docs falham, compliance ok → fallback_error"
+    vars:
+      message: |
+        Solicitação de crédito recebida:
+        - request_id: REQ-012
+        - CPF mascarado: XXX.XXX.XXX-12
+        - Valor: R$ 10.000
+
+        Resultados dos sub-agentes:
+        - bureau.get_score: { status: "error", error: "timeout", retries: 2 }
+        - documents.validate: { status: "error", error: "timeout", retries: 2 }
+        - compliance.check: { kyc_approved: true, pld_clear: true, lgpd_consent: true, status: "ok" }
+
+        O que o orquestrador deve fazer?
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          const required = ['request_id','status','decision','requested_amount',
+                            'approved_amount','justification','conditions',
+                            'trace_id','processing_time_ms','agents_consulted'];
+          const missing = required.filter(f => !(f in r));
+          if (missing.length > 0) throw new Error('Campos ausentes: ' + missing.join(', '));
+          if (r.status !== 'pending_human_review') throw new Error('status deve ser pending_human_review');
+          if (r.decision !== 'pending') throw new Error('decision deve ser pending');
+          if (r.approved_amount !== null) throw new Error('approved_amount deve ser null');
+          if (!r.justification.includes('fallback_error')) throw new Error('justification deve conter fallback_error');
+          if (!r.justification.includes('bureau_unavailable')) throw new Error('justification deve conter bureau_unavailable');
+          if (!r.justification.includes('docs_unverified')) throw new Error('justification deve conter docs_unverified');
+          if (!r.agents_consulted.includes('handoff_to_human')) throw new Error('agents_consulted deve incluir handoff_to_human');
+          return true;
+      - type: llm-rubric
+        value: "Deve acionar handoff_to_human com reason fallback_error. A justificativa deve citar bureau_unavailable e docs_unverified. Status deve ser pending_human_review, decision pending, approved_amount null."
+
+# ---------------------------------------------------------------------------
+# Configuração de output
+# ---------------------------------------------------------------------------
+outputPath: ./evals/eval-results.json
