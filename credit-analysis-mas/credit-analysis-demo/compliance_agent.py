@@ -159,7 +159,8 @@ def load_compliance_prompt() -> str:
 
 def build_llm_client() -> OpenAI:
     token = gateway_auth.get_token()
-    llm_base_url = os.environ["AI_GATEWAY_LLM_BASE_URL"]
+    # Prioritiza o endpoint específico do LLM de compliance se configurado
+    llm_base_url = os.environ.get("AI_GATEWAY_COMPLIANCE_LLM_URL") or os.environ["AI_GATEWAY_LLM_BASE_URL"]
     if llm_base_url.endswith("/chat/completions"):
         llm_base_url = llm_base_url[:-len("/chat/completions")]
 
