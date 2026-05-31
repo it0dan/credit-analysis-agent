@@ -426,15 +426,9 @@ def execute_tool(name: str, args: dict, agents: MockAgents, trace_id: str = None
     Nenhuma decisão de fluxo é tomada aqui — o LLM decide o quê chamar.
     """
     if name == "compliance_check":
-        # Rota via Sensedia AI Gateway (definida no .env ou inferida de AI_GATEWAY_MCP_BASE_URL)
-        url = os.environ.get("AI_GATEWAY_COMPLIANCE_URL")
-        if not url:
-            gateway_base = os.environ.get("AI_GATEWAY_MCP_BASE_URL")
-            if gateway_base:
-                url = f"{gateway_base.rstrip('/')}/compliance/v1/compliance"
-            else:
-                a2a_port = os.environ.get("A2A_COMPLIANCE_PORT") or "8085"
-                url = f"http://localhost:{a2a_port}/v1/compliance"
+        # Chamada A2A real via HTTP para o compliance_agent (direto via localhost, sem proxy do gateway)
+        a2a_port = os.environ.get("A2A_COMPLIANCE_PORT") or "8085"
+        url = f"http://localhost:{a2a_port}/v1/compliance"
         
         import urllib.request
         import urllib.error
@@ -460,16 +454,7 @@ def execute_tool(name: str, args: dict, agents: MockAgents, trace_id: str = None
             "X-Trace-Id": tr_id
         }
         
-        # Se a rota for externa (via Gateway), injeta o token OAuth2 Bearer gerado pelo gateway_auth
-        if "localhost" not in url:
-            try:
-                from gateway_auth import gateway_auth
-                token = gateway_auth.get_token()
-                headers["Authorization"] = f"Bearer {token}"
-            except Exception as auth_err:
-                print(f"  [warn] Falha ao recuperar token OAuth2 para A2A Gateway: {auth_err}")
-        
-        print(f"  [A2A] Iniciando chamada HTTP real (A2A via Gateway) para {url} (trace_id={tr_id})...")
+        print(f"  [A2A] Iniciando chamada HTTP real (A2A direto) para {url} (trace_id={tr_id})...")
         req = urllib.request.Request(
             url,
             data=json.dumps(payload).encode('utf-8'),
