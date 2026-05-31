@@ -1,0 +1,149 @@
+{
+  "$schema": "https://raw.githubusercontent.com/google/agent-to-agent/main/schemas/agent-card-v1.json",
+  "schema_version": "1.0",
+  "name": "compliance-agent",
+  "display_name": "Agente de Compliance e Conformidade Regulatória",
+  "version": "1.0.0",
+  "description": "Agente responsável por auditoria de KYC (Know Your Customer), PLD/COAF (Prevenção à Lavagem de Dinheiro) e validação de consentimento LGPD de solicitantes na esteira de concessão de crédito.",
+  "author": {
+    "name": "Time de Governança, Compliance e PLD",
+    "email": "compliance-tech@sensedia.com",
+    "organization": "Sensedia"
+  },
+  "protocols": {
+    "http": {
+      "base_url": "https://api.sensedia.com/gateway/compliance/v1",
+      "paths": {
+        "/compliance": {
+          "method": "POST",
+          "description": "Executa a esteira sequencial de compliance (KYC -> PLD -> LGPD) com regras de curto-circuito (short-circuit) e tolerância a falhas técnicas.",
+          "headers": {
+            "Content-Type": "application/json",
+            "X-Trace-Id": {
+              "type": "string",
+              "required": true,
+              "description": "Identificador de rastreamento exclusivo (UUID) para correlação distribuída no Jaeger/OpenTelemetry."
+            }
+          },
+          "authentication": {
+            "type": "oauth2",
+            "description": "Fluxo de Client Credentials (OAuth 2.0) validado pelo Sensedia AI Gateway via Keycloak.",
+            "scopes": ["compliance:verify"]
+          },
+          "sla": {
+            "timeout_ms": 5000,
+            "latency_p95_ms": 3000
+          },
+          "idempotency": {
+            "strategy": "body_parameter",
+            "parameter": "request_id",
+            "ttl_seconds": 86400
+          },
+          "request": {
+            "schema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "type": "object",
+              "properties": {
+                "applicant_masked_cpf": {
+                  "type": "string",
+                  "pattern": "^\\d{3}\\.\\d{3}\\.\\d{3}-\\d{2}$",
+                  "description": "CPF mascarado do proponente no formato XXX.XXX.XXX-XX, garantindo conformidade com o princípio de minimização da LGPD."
+                },
+                "request_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "UUID único da requisição de análise de crédito utilizado para controle de idempotência."
+                },
+                "trace_id": {
+                  "type": "string",
+                  "description": "Trace ID original gerado pelo orquestrador para cruzamento de telemetria no Gateway."
+                },
+                "scenario": {
+                  "type": "string",
+                  "enum": ["auto_approve", "hitl_required", "compliance_fail", "bureau_error", "multi_error"],
+                  "description": "Parâmetro opcional de simulação utilizado para rotear o comportamento de mock no ambiente de testes/sandbox."
+                }
+              },
+              "required": ["applicant_masked_cpf", "request_id"]
+            }
+          },
+          "response": {
+            "schema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "type": "object",
+              "properties": {
+                "request_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "UUID da requisição correspondente retornado para conciliação pelo orquestrador."
+                },
+                "kyc_approved": {
+                  "type": "boolean",
+                  "description": "Indica se o proponente passou com sucesso nas validações de Know Your Customer (integridade cadastral)."
+                },
+                "pld_clear": {
+                  "type": "boolean",
+                  "description": "Indica se o proponente está livre de apontamentos em listas restritivas de Prevenção à Lavagem de Dinheiro (PLD/COAF) e sanções."
+                },
+                "lgpd_consent": {
+                  "type": "boolean",
+                  "description": "Indica se o consentimento do titular para tratamento de dados pessoais sensíveis foi devidamente capturado."
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["ok", "rejected", "error", "timeout"],
+                  "description": "Status contratual final da decisão de conformidade regulatória."
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": [
+                    "kyc_failed", "kyc_unavailable", "kyc_timeout",
+                    "pld_positive", "pld_unavailable", "pld_timeout",
+                    "lgpd_no_consent", "lgpd_unavailable", "lgpd_timeout",
+                    "null"
+                  ],
+                  "nullable": true,
+                  "description": "Código padronizado detalhando o motivo específico de recusa ou falha técnica."
+                },
+                "details": {
+                  "type": "string",
+                  "description": "Justificativa textual descritiva da decisão tomada pelo agente de compliance para fins de auditoria interna."
+                },
+                "tools_called": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Lista de ferramentas MCP (mcp-kyc) acionadas na sequência lógica do loop de compliance."
+                },
+                "processing_time_ms": {
+                  "type": "integer",
+                  "description": "Tempo total gasto pelo agente para processamento da análise em milissegundos."
+                },
+                "trace_id": {
+                  "type": "string",
+                  "description": "Trace ID propagado e retornado no corpo para confirmação de correlação."
+                }
+              },
+              "required": ["request_id", "kyc_approved", "pld_clear", "lgpd_consent", "status", "reason"]
+            }
+          }
+        }
+      }
+    }
+  },
+  "skills": [
+    {
+      "name": "verify_kyc",
+      "description": "Valida dados cadastrais e integridade do solicitante com base no CPF mascarado enviado pelo canal de aquisição."
+    },
+    {
+      "name": "check_pld",
+      "description": "Consulta listas de conformidade de Prevenção à Lavagem de Dinheiro (PLD/COAF), PEP (Pessoas Politicamente Expostas) e sanções globais."
+    },
+    {
+      "name": "verify_lgpd_consent",
+      "description": "Verifica se há um termo de consentimento LGPD válido, capturado digitalmente no canal de origem, autorizando o processamento de dados para fins de análise de risco de crédito."
+    }
+  ]
+}
