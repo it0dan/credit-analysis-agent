@@ -134,6 +134,51 @@
       "approved_amount": null,
       "justification": "Ambas as verificações de bureau de crédito e validação de documentos falharam devido a timeouts técnicos, exigindo revisão humana.",
       "timestamp": "2026-05-31T16:19:54Z"
+    },
+    {
+      "request_id": "44255473",
+      "status": "pending_human_review",
+      "decision": "pending",
+      "requested_amount": 10000.0,
+      "approved_amount": null,
+      "justification": "Falha na consulta ao bureau e na validação de documentos. Encaminhado para análise humana.",
+      "timestamp": "2026-05-31T20:24:29Z"
+    },
+    {
+      "request_id": "35c4a25a",
+      "status": "rejected",
+      "decision": "rejected",
+      "requested_amount": 15000.0,
+      "approved_amount": 0,
+      "justification": "Compliance check failed: KYC and PLD were not approved.",
+      "timestamp": "2026-05-31T20:24:31Z"
+    },
+    {
+      "request_id": "ace22b6b",
+      "status": "pending_human_review",
+      "decision": "pending",
+      "requested_amount": 10000.0,
+      "approved_amount": null,
+      "justification": "Falha simultânea nos serviços do Bureau e de Validação de Documentos.",
+      "timestamp": "2026-05-31T20:24:34Z"
+    },
+    {
+      "request_id": "b29b761a",
+      "status": "approved",
+      "decision": "approved",
+      "requested_amount": 20000.0,
+      "approved_amount": 20000.0,
+      "justification": "Score 780, renda R$8k confirmada, risco baixo, compliance ok.",
+      "timestamp": "2026-05-31T20:24:37Z"
+    },
+    {
+      "request_id": "8f856d64",
+      "status": "pending_human_review",
+      "decision": "pending",
+      "requested_amount": 80000.0,
+      "approved_amount": null,
+      "justification": "Solicitação encaminhada para análise humana devido ao valor exceder o limite de aprovação automática (R$ 50.000). Análise prévia indica bom perfil de crédito.",
+      "timestamp": "2026-05-31T20:24:38Z"
     }
   ]
 }
