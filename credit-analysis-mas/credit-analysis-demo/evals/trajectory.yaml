@@ -1,0 +1,223 @@
+# PromptFoo Eval Suite — AgentOrchestrator Trajectory Evals
+# Rastreabilidade: Visão-Alvo v2 § Trajectory Evals (tool sequence, short-circuit)
+# Executar: npx promptfoo eval --config evals/trajectory.yaml
+
+description: "AgentOrchestrator — Trajectory and Policy Evals (v2 Target)"
+
+providers:
+  - id: "exec:../.venv/bin/python ../orchestrator_provider.py --scenario {{scenario}} --amount {{amount}}"
+
+tests:
+  # ─────────────────────────────────────────────────────────────────────────
+  # Caso 1 — Fluxo Feliz: Aprovação automática
+  # ─────────────────────────────────────────────────────────────────────────
+  - description: "[TRAJECTORY-1] Cenário auto_approve: sequência feliz completa e conformidade inclusa"
+    vars:
+      scenario: "auto_approve"
+      amount: 20000
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          const meta = r._meta;
+          if (!meta) throw new Error("Metadados _meta não encontrados na saída");
+          const trajectory = meta.trajectory;
+          if (!trajectory) throw new Error("Trajetória não encontrada nos metadados");
+          const tools = trajectory.map(t => t.tool);
+
+          // 1. O status e decisão devem ser aprovados
+          if (r.status !== "approved") throw new Error(`Status esperado "approved", recebido: ${r.status}`);
+          if (r.decision !== "approved") throw new Error(`Decisão esperada "approved", recebida: ${r.decision}`);
+          if (r.approved_amount !== 20000) throw new Error(`approved_amount esperado 20000, recebido: ${r.approved_amount}`);
+
+          // 2. A conformidade nunca deve ser pulada no fluxo feliz
+          if (!tools.includes("compliance_check")) throw new Error("A conformidade (compliance_check) foi indevidamente pulada!");
+
+          // 3. Sequência de ferramentas:
+          // Turno 1: Paralelismo entre bureau_get_score e documents_validate
+          const turn1 = trajectory.filter(t => t.turn === 1).map(t => t.tool);
+          if (!turn1.includes("bureau_get_score") || !turn1.includes("documents_validate")) {
+            throw new Error("Turno 1 deve executar bureau_get_score e documents_validate em paralelo");
+          }
+
+          // Turno 2: risk_evaluate
+          const turn2 = trajectory.filter(t => t.turn === 2).map(t => t.tool);
+          if (!turn2.includes("risk_evaluate")) throw new Error("Turno 2 deve acionar risk_evaluate");
+
+          // Turno 3: compliance_check
+          const turn3 = trajectory.filter(t => t.turn === 3).map(t => t.tool);
+          if (!turn3.includes("compliance_check")) throw new Error("Turno 3 deve acionar compliance_check");
+
+          // Turno 4: decision_synthesize
+          const turn4 = trajectory.filter(t => t.turn === 4).map(t => t.tool);
+          if (!turn4.includes("decision_synthesize")) throw new Error("Turno 4 deve acionar decision_synthesize");
+
+          return true;
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Caso 2 — Escalabilidade HITL por limite (threshold)
+  # ─────────────────────────────────────────────────────────────────────────
+  - description: "[TRAJECTORY-2] Cenário hitl_required: aciona handoff por valor alto após sequência completa"
+    vars:
+      scenario: "hitl_required"
+      amount: 80000
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          const meta = r._meta;
+          if (!meta) throw new Error("Metadados _meta não encontrados na saída");
+          const trajectory = meta.trajectory;
+          const tools = trajectory.map(t => t.tool);
+
+          // 1. Deve ser encaminhado para revisão humana
+          if (r.status !== "pending_human_review") throw new Error(`Status esperado "pending_human_review", recebido: ${r.status}`);
+          if (r.decision !== "pending") throw new Error(`Decisão esperada "pending", recebida: ${r.decision}`);
+          if (r.approved_amount !== null && r.approved_amount !== 0) throw new Error(`approved_amount esperado null ou 0, recebido: ${r.approved_amount}`);
+
+          // 2. Deve chamar handoff_to_human
+          if (!tools.includes("handoff_to_human")) throw new Error("Não acionou handoff_to_human!");
+
+          // 3. Sequência de ferramentas (completa até o handoff):
+          const turn1 = trajectory.filter(t => t.turn === 1).map(t => t.tool);
+          if (!turn1.includes("bureau_get_score") || !turn1.includes("documents_validate")) {
+            throw new Error("Turno 1 deve executar bureau_get_score e documents_validate");
+          }
+          const turn2 = trajectory.filter(t => t.turn === 2).map(t => t.tool);
+          if (!turn2.includes("risk_evaluate")) throw new Error("Turno 2 deve acionar risk_evaluate");
+          
+          const turn3 = trajectory.filter(t => t.turn === 3).map(t => t.tool);
+          if (!turn3.includes("compliance_check")) throw new Error("Turno 3 deve acionar compliance_check");
+
+          const turn4 = trajectory.filter(t => t.turn === 4).map(t => t.tool);
+          if (!turn4.includes("decision_synthesize")) throw new Error("Turno 4 deve acionar decision_synthesize");
+
+          const turn5 = trajectory.filter(t => t.turn === 5).map(t => t.tool);
+          if (!turn5.includes("handoff_to_human")) throw new Error("Turno 5 deve acionar handoff_to_human");
+
+          return true;
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Caso 3 — Short-circuit de Compliance
+  # ─────────────────────────────────────────────────────────────────────────
+  - description: "[TRAJECTORY-3] Cenário compliance_fail: recusa imediata sem sintetizar decisão ou pedir HITL"
+    vars:
+      scenario: "compliance_fail"
+      amount: 15000
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          const meta = r._meta;
+          if (!meta) throw new Error("Metadados _meta não encontrados na saída");
+          const trajectory = meta.trajectory;
+          const tools = trajectory.map(t => t.tool);
+
+          // 1. Deve ser recusado diretamente
+          if (r.status !== "rejected") throw new Error(`Status esperado "rejected", recebido: ${r.status}`);
+          if (r.decision !== "rejected") throw new Error(`Decisão esperada "rejected", recebida: ${r.decision}`);
+          if (r.approved_amount !== 0) throw new Error(`approved_amount esperado 0, recebido: ${r.approved_amount}`);
+
+          // 2. Short-circuit: NUNCA deve chamar decision_synthesize ou handoff_to_human
+          if (tools.includes("decision_synthesize")) throw new Error("Falha no short-circuit de conformidade: decision_synthesize foi chamada!");
+          if (tools.includes("handoff_to_human")) throw new Error("Falha no short-circuit de conformidade: handoff_to_human foi acionada!");
+
+          // 3. Sequência de ferramentas:
+          const turn1 = trajectory.filter(t => t.turn === 1).map(t => t.tool);
+          if (!turn1.includes("bureau_get_score") || !turn1.includes("documents_validate")) {
+            throw new Error("Turno 1 deve executar bureau_get_score e documents_validate");
+          }
+          const turn2 = trajectory.filter(t => t.turn === 2).map(t => t.tool);
+          if (!turn2.includes("risk_evaluate")) throw new Error("Turno 2 deve acionar risk_evaluate");
+          
+          const turn3 = trajectory.filter(t => t.turn === 3).map(t => t.tool);
+          if (!turn3.includes("compliance_check")) throw new Error("Turno 3 deve acionar compliance_check (onde ocorre a falha)");
+
+          return true;
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Caso 4 — Short-circuit por erro técnico de Bureau
+  # ─────────────────────────────────────────────────────────────────────────
+  - description: "[TRAJECTORY-4] Cenário bureau_error: handoff imediato após indisponibilidade técnica, sem risk/compliance"
+    vars:
+      scenario: "bureau_error"
+      amount: 10000
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          const meta = r._meta;
+          if (!meta) throw new Error("Metadados _meta não encontrados na saída");
+          const trajectory = meta.trajectory;
+          const tools = trajectory.map(t => t.tool);
+
+          // 1. Deve ir para revisão humana
+          if (r.status !== "pending_human_review") throw new Error(`Status esperado "pending_human_review", recebido: ${r.status}`);
+          if (r.decision !== "pending") throw new Error(`Decisão esperada "pending", recebida: ${r.decision}`);
+          if (r.approved_amount !== null && r.approved_amount !== 0) throw new Error(`approved_amount esperado null, recebido: ${r.approved_amount}`);
+
+          // 2. Deve chamar o handoff_to_human
+          if (!tools.includes("handoff_to_human")) throw new Error("Handoff não acionado!");
+
+          // 3. Short-circuit: NÃO deve chamar risk_evaluate, compliance_check ou decision_synthesize
+          if (tools.includes("risk_evaluate")) throw new Error("Erro de short-circuit: risk_evaluate não deveria ser chamada devido a falha do Bureau");
+          if (tools.includes("compliance_check")) throw new Error("Erro de short-circuit: compliance_check não deveria ser chamada devido a falha do Bureau");
+          if (tools.includes("decision_synthesize")) throw new Error("Erro de short-circuit: decision_synthesize não deveria ser chamada devido a falha do Bureau");
+
+          // 4. Sequência de ferramentas:
+          const turn1 = trajectory.filter(t => t.turn === 1).map(t => t.tool);
+          if (!turn1.includes("bureau_get_score") || !turn1.includes("documents_validate")) {
+            throw new Error("Turno 1 deve acionar bureau_get_score (que falha) e documents_validate");
+          }
+          const turn2 = trajectory.filter(t => t.turn === 2).map(t => t.tool);
+          if (!turn2.includes("handoff_to_human")) throw new Error("Turno 2 deve acionar handoff_to_human");
+
+          return true;
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Caso 5 — Múltiplos erros simultâneos (Fallback completo)
+  # ─────────────────────────────────────────────────────────────────────────
+  - description: "[TRAJECTORY-5] Cenário multi_error: bureau + docs falham simultaneamente, handoff de segurança"
+    vars:
+      scenario: "multi_error"
+      amount: 10000
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          const meta = r._meta;
+          if (!meta) throw new Error("Metadados _meta não encontrados na saída");
+          const trajectory = meta.trajectory;
+          const tools = trajectory.map(t => t.tool);
+
+          // 1. Deve ir para revisão humana
+          if (r.status !== "pending_human_review") throw new Error(`Status esperado "pending_human_review", recebido: ${r.status}`);
+          if (r.decision !== "pending") throw new Error(`Decisão esperada "pending", recebida: ${r.decision}`);
+
+          // 2. Deve chamar handoff_to_human
+          if (!tools.includes("handoff_to_human")) throw new Error("Handoff de múltiplos erros não acionado!");
+
+          // 3. Short-circuit total:
+          if (tools.includes("risk_evaluate")) throw new Error("Erro de short-circuit: risk_evaluate não deveria ser executado");
+          if (tools.includes("compliance_check")) throw new Error("Erro de short-circuit: compliance_check não deveria ser executado");
+          if (tools.includes("decision_synthesize")) throw new Error("Erro de short-circuit: decision_synthesize não deveria ser executado");
+
+          // 4. Sequência de ferramentas:
+          const turn1 = trajectory.filter(t => t.turn === 1).map(t => t.tool);
+          if (!turn1.includes("bureau_get_score") || !turn1.includes("documents_validate")) {
+            throw new Error("Turno 1 deve acionar bureau_get_score e documents_validate (ambos falham)");
+          }
+          const turn2 = trajectory.filter(t => t.turn === 2).map(t => t.tool);
+          if (!turn2.includes("handoff_to_human")) throw new Error("Turno 2 deve acionar handoff_to_human");
+
+          return true;
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Configuração de output
+# ─────────────────────────────────────────────────────────────────────────────
+outputPath: ./evals/eval-results.json
