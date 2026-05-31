@@ -173,7 +173,7 @@ def build_llm_client() -> OpenAI:
 # Fluxo Híbrido/Colapsado do Agente de Compliance
 # ─────────────────────────────────────────────────────────────────────────────
 
-def run_compliance_agent(scenario: str, request_id: str = None) -> dict:
+def run_compliance_agent(scenario: str, request_id: str = None, trace_id: str = None) -> dict:
     if not request_id:
         request_id = str(uuid.uuid4())
     masked_cpf = "XXX.XXX.XXX-99"
@@ -229,7 +229,7 @@ def run_compliance_agent(scenario: str, request_id: str = None) -> dict:
     
     # 1. Executa verify_kyc
     print("  [tool] Executando verify_kyc localmente...")
-    kyc_res = agents.verify_kyc(applicant_masked_cpf=masked_cpf, request_id=request_id)
+    kyc_res = agents.verify_kyc(applicant_masked_cpf=masked_cpf, request_id=request_id, trace_id=trace_id)
     executed_tools.append(("verify_kyc", kyc_res))
 
     kyc_ok = kyc_res.get("status") == "ok" and kyc_res.get("kyc_approved") is True
@@ -238,7 +238,7 @@ def run_compliance_agent(scenario: str, request_id: str = None) -> dict:
     pld_res = None
     if kyc_ok:
         print("  [tool] KYC aprovado. Executando check_pld localmente...")
-        pld_res = agents.check_pld(applicant_masked_cpf=masked_cpf, request_id=request_id)
+        pld_res = agents.check_pld(applicant_masked_cpf=masked_cpf, request_id=request_id, trace_id=trace_id)
         executed_tools.append(("check_pld", pld_res))
     else:
         print("  [short-circuit] KYC não aprovado ou indisponível. Interrompendo sequência.")
@@ -249,7 +249,7 @@ def run_compliance_agent(scenario: str, request_id: str = None) -> dict:
     lgpd_res = None
     if kyc_ok and pld_ok:
         print("  [tool] PLD aprovado. Executando verify_lgpd_consent localmente...")
-        lgpd_res = agents.verify_lgpd_consent(applicant_masked_cpf=masked_cpf, request_id=request_id)
+        lgpd_res = agents.verify_lgpd_consent(applicant_masked_cpf=masked_cpf, request_id=request_id, trace_id=trace_id)
         executed_tools.append(("verify_lgpd_consent", lgpd_res))
     elif kyc_ok:
         print("  [short-circuit] PLD não aprovado ou indisponível. Interrompendo sequência.")
@@ -335,11 +335,52 @@ if __name__ == "__main__":
         choices=["auto_approve", "hitl_required", "compliance_fail", "bureau_error"],
         help="Cenário de demo",
     )
+    parser.add_argument(
+        "--port", type=int, help="Porta para rodar o servidor HTTP A2A"
+    )
     args = parser.parse_args()
 
-    result = run_compliance_agent(scenario=args.scenario)
+    if args.port:
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+        
+        class ComplianceA2AHandler(BaseHTTPRequestHandler):
+            def do_POST(self):
+                content_length = int(self.headers['Content-Length'])
+                post_data = self.rfile.read(content_length)
+                try:
+                    req_data = json.loads(post_data.decode('utf-8'))
+                except Exception as e:
+                    self.send_response(400)
+                    self.end_headers()
+                    self.wfile.write(b"Invalid JSON")
+                    return
+                    
+                scenario = req_data.get("scenario", "auto_approve")
+                request_id = req_data.get("request_id")
+                trace_id = req_data.get("trace_id") or self.headers.get("X-Trace-Id") or request_id
+                
+                print(f"  [A2A] Recebido request em compliance_agent (trace_id={trace_id})")
+                
+                # Executa o compliance agent com propagação do trace_id
+                result = run_compliance_agent(scenario=scenario, request_id=request_id, trace_id=trace_id)
+                result["trace_id"] = trace_id
+                
+                response_data = json.dumps(result).encode('utf-8')
+                
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('X-Trace-Id', trace_id)
+                self.end_headers()
+                self.wfile.write(response_data)
+                
+        server_address = ('', args.port)
+        httpd = HTTPServer(server_address, ComplianceA2AHandler)
+        print(f"🚀 Servidor A2A Compliance Rodando na porta {args.port}...")
+        httpd.serve_forever()
+    else:
+        result = run_compliance_agent(scenario=args.scenario)
 
-    print(f"\n{'='*60}")
-    print("  RESULTADO CONTRATUAL DO COMPLIANCE")
-    print(f"{'='*60}")
-    print(json.dumps(result, indent=2, ensure_ascii=False))
+        print(f"\n{'='*60}")
+        print("  RESULTADO CONTRATUAL DO COMPLIANCE")
+        print(f"{'='*60}")
+        print(json.dumps(result, indent=2, ensure_ascii=False))

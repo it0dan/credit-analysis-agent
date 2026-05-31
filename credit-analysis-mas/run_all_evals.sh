@@ -23,6 +23,7 @@ export AI_GATEWAY_TOKEN=$TOKEN
 # 2. Configurações individuais
 CONFIGS=(
   "credit-analysis-demo/evals/orchestrator.yaml"
+  "credit-analysis-demo/evals/trajectory.yaml"
   "credit-analysis-openspec/openspec/changes/archive/add-bureau-agent/evals/bureau.yaml"
   "credit-analysis-openspec/openspec/changes/archive/add-documents-agent/evals/documents.yaml"
   "credit-analysis-openspec/openspec/changes/archive/add-compliance-agent/evals/compliance.yaml"
