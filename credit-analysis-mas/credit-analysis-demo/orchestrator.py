@@ -426,28 +426,54 @@ def execute_tool(name: str, args: dict, agents: MockAgents, trace_id: str = None
     Nenhuma decisão de fluxo é tomada aqui — o LLM decide o quê chamar.
     """
     if name == "compliance_check":
-        # Tentativa de chamada A2A real via HTTP para o compliance_agent se estiver ativo
-        a2a_port = os.environ.get("A2A_COMPLIANCE_PORT") or "8085"
-        url = f"http://localhost:{a2a_port}/compliance"
+        # Rota via Sensedia AI Gateway (definida no .env ou inferida de AI_GATEWAY_MCP_BASE_URL)
+        url = os.environ.get("AI_GATEWAY_COMPLIANCE_URL")
+        if not url:
+            gateway_base = os.environ.get("AI_GATEWAY_MCP_BASE_URL")
+            if gateway_base:
+                url = f"{gateway_base.rstrip('/')}/compliance/v1/compliance"
+            else:
+                a2a_port = os.environ.get("A2A_COMPLIANCE_PORT") or "8085"
+                url = f"http://localhost:{a2a_port}/v1/compliance"
         
         import urllib.request
         import urllib.error
+        import uuid
         
+        # Garante que request_id e trace_id sejam UUIDs válidos para validação estrita do Zod
+        req_id = args.get("request_id")
+        if not req_id:
+            req_id = str(uuid.uuid4())
+            
+        tr_id = trace_id
+        if not tr_id:
+            tr_id = str(uuid.uuid4())
+            
         payload = {
-            "scenario": agents.scenario,
             "applicant_masked_cpf": args.get("applicant_masked_cpf"),
-            "request_id": args.get("request_id"),
-            "trace_id": trace_id
+            "request_id": req_id,
+            "trace_id": tr_id
         }
         
-        print(f"  [A2A] Iniciando chamada HTTP real (A2A) para {url} (trace_id={trace_id})...")
+        headers = {
+            "Content-Type": "application/json",
+            "X-Trace-Id": tr_id
+        }
+        
+        # Se a rota for externa (via Gateway), injeta o token OAuth2 Bearer gerado pelo gateway_auth
+        if "localhost" not in url:
+            try:
+                from gateway_auth import gateway_auth
+                token = gateway_auth.get_token()
+                headers["Authorization"] = f"Bearer {token}"
+            except Exception as auth_err:
+                print(f"  [warn] Falha ao recuperar token OAuth2 para A2A Gateway: {auth_err}")
+        
+        print(f"  [A2A] Iniciando chamada HTTP real (A2A via Gateway) para {url} (trace_id={tr_id})...")
         req = urllib.request.Request(
             url,
             data=json.dumps(payload).encode('utf-8'),
-            headers={
-                "Content-Type": "application/json",
-                "X-Trace-Id": trace_id or ""
-            },
+            headers=headers,
             method="POST"
         )
         try:
