@@ -99,3 +99,14 @@ MCP_SERVER_CREDIT="credit-mcp-server"
 # Porta de Serviço Externa do Agente de Compliance (A2A)
 A2A_COMPLIANCE_PORT=8085
 ```
+
+---
+
+## 10. Contexto de Sessão
+
+* **Ao iniciar:** Leia `.agent/handoff.md`. Se não estiver vazio, o conteúdo representa o estado exato de onde a última sessão parou — siga a partir daí.
+* **Ao encerrar:** Atualize `.agent/handoff.md` com:
+  * O que foi implementado ou decidido nesta sessão
+  * Estado atual dos arquivos modificados
+  * Próximo passo concreto (ação específica, não direção genérica)
+  * Qualquer invariante nova que emergiu durante o trabalho
