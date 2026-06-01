@@ -2,8 +2,8 @@
 
 Sistema multiagente (MAS) de análise de crédito. Orquestrador do loop agêntico
 híbrido paralelo-serial (T1/T2/T3) que coordena agentes especializados via
-Sensedia AI Gateway. Materialização da palestra "Arquitetura Agêntica:
-Construindo Sistemas Multiagentes Eficientes" — APIX 2026.
+Sensedia AI Gateway. Implementação didática de "Arquitetura Agêntica:
+Construindo Sistemas Multiagentes Eficientes".
 
 ## Stack
 

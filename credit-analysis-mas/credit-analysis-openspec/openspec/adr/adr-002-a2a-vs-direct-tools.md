@@ -39,7 +39,7 @@ O orquestrador conhece e chama diretamente todas as ferramentas:
 - Qualquer mudança em um MCP Server exige atualização do prompt do orquestrador
 - Impossível trocar a lógica interna de um domínio sem afetar o orquestrador
 - Contexto do orquestrador cresce com detalhes de cada ferramenta (custo de tokens)
-- Contradiz o conceito de MCP padronizando a conexão vertical apresentado na palestra
+- Contradiz o conceito de MCP padronizando a conexão vertical da arquitetura de referência
 
 ---
 
@@ -52,7 +52,7 @@ Cada sub-agente é responsável por suas próprias ferramentas MCP.
 - Separação clara de responsabilidades: orquestrador coordena, sub-agentes executam
 - Sub-agentes evoluem independentemente (trocar MCP Server de bureau não afeta orquestrador)
 - Orquestrador mantém contexto enxuto (não precisa conhecer schemas de cada ferramenta)
-- Alinhado com os protocolos da palestra: MCP vertical + A2A horizontal
+- Alinhado com os protocolos recomendados: MCP vertical + A2A horizontal
 - Cada sub-agente pode ter seu próprio harness de evals independente
 
 **Contras:**
@@ -69,7 +69,7 @@ Cada sub-agente é responsável por suas próprias ferramentas MCP.
 A separação de responsabilidades e a capacidade de evolução independente dos domínios
 superam o custo de latência adicional. O sistema é uma demonstração de arquitetura
 agêntica, portanto a clareza dos protocolos (MCP vertical + A2A horizontal) tem
-valor intrínseco para comunicar os conceitos da palestra.
+valor intrínseco para comunicar os conceitos da arquitetura agêntica.
 
 A latência adicional (~500-1000ms total para 5 chamadas A2A) é aceitável dentro
 do SLO de 8s definido para o fluxo automático.
@@ -81,7 +81,7 @@ do SLO de 8s definido para o fluxo automático.
 **Positivas:**
 - Cada sub-agente tem prompt, harness e eval próprios (manutenção isolada)
 - Mudanças em MCP Servers não propagam para o orquestrador
-- Arquitetura comunica claramente os conceitos MCP + A2A da palestra
+- Arquitetura comunica claramente os conceitos de integração MCP + A2A
 - Sensedia AI Gateway pode aplicar políticas (rate limit, AuthZ) por sub-agente
 
 **Negativas:**
@@ -98,6 +98,6 @@ apontar A2A como gargalo → avaliar colapso de sub-agentes de menor complexidad
 
 ## Referências
 
-- Slides da palestra: Protocolos & Integrações (MCP + A2A)
+- Arquitetura de Referência: Protocolos & Integrações (MCP + A2A)
 - Decisão técnica DT-002 em `changes/add-orchestrator-agent/design.md`
 - SLOs globais em `openspec/project.md`

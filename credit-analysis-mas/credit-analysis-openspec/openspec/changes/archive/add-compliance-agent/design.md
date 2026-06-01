@@ -117,7 +117,7 @@ antes de chamar o compliance. O AgentCompliance deve receber esses dados?
 - Compliance é uma verificação independente de score e risco.
   O resultado do KYC/PLD não deve ser influenciado pelo score de bureau ou
   pela renda confirmada — isso criaria viés regulatório.
-- Princípio de isolamento de contexto (palestra): sub-agente recebe apenas
+- Princípio de isolamento de contexto: sub-agente recebe apenas
   o mínimo necessário para sua função.
 - Reduz custo de tokens e elimina risco de o modelo usar dados de risco
   para "suavizar" uma decisão de compliance.

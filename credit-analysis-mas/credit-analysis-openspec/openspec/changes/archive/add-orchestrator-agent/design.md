@@ -72,7 +72,7 @@ com handoff explícito de contexto entre elas.
 Passar o contexto completo é caro e vaza informação entre domínios.
 
 **Decisão:** Cada chamada A2A recebe apenas os campos necessários para aquele domínio
-(princípio do isolamento de contexto da palestra). O orquestrador mantém o estado
+(princípio do isolamento de contexto). O orquestrador mantém o estado
 consolidado internamente e nunca expõe o payload completo a um único sub-agente.
 
 **Razão:** Reduz custo de tokens, respeita LGPD (sub-agente de documentos não
