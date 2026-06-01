@@ -174,6 +174,44 @@ class MockAgents:
     # [ORIGEM: spec.md § Etapa 4 — compliance.check]
     def compliance_check(self, applicant_masked_cpf: str,
                           request_id: str, trace_id: str = None) -> dict[str, Any]:
+        if applicant_masked_cpf:
+            if "111" in applicant_masked_cpf:
+                return _normalize_dict({
+                    "request_id": request_id,
+                    "kyc_approved": False,
+                    "pld_clear": None,
+                    "lgpd_consent": None,
+                    "status": "rejected",
+                    "reason": "kyc_failed",
+                    "details": "Falha cadastral: CPF com inconsistências ativas no banco de dados de KYC.",
+                    "tools_called": ["verify_kyc"],
+                    "trace_id": trace_id or request_id
+                })
+            elif "222" in applicant_masked_cpf:
+                return _normalize_dict({
+                    "request_id": request_id,
+                    "kyc_approved": True,
+                    "pld_clear": False,
+                    "lgpd_consent": None,
+                    "status": "rejected",
+                    "reason": "pld_positive",
+                    "details": "Rejeitado devido a apontamento restritivo em listas de PEP/PLD/Sanções.",
+                    "tools_called": ["verify_kyc", "check_pld"],
+                    "trace_id": trace_id or request_id
+                })
+            elif "333" in applicant_masked_cpf:
+                return _normalize_dict({
+                    "request_id": request_id,
+                    "kyc_approved": False,
+                    "pld_clear": None,
+                    "lgpd_consent": None,
+                    "status": "timeout",
+                    "reason": "kyc_timeout",
+                    "details": "Tempo limite de execução excedido durante a consulta KYC.",
+                    "tools_called": ["verify_kyc"],
+                    "trace_id": trace_id or request_id
+                })
+
         if self._data.get("compliance") is None:
             return _normalize_dict({"status": "error", "error": "not_applicable",
                     "request_id": request_id, "trace_id": trace_id or request_id})
@@ -185,6 +223,25 @@ class MockAgents:
     # [ORIGEM: compliance-agent/spec.md § Ferramenta: verify_kyc]
     def verify_kyc(self, applicant_masked_cpf: str,
                    request_id: str, trace_id: str = None) -> dict[str, Any]:
+        if applicant_masked_cpf:
+            if "333" in applicant_masked_cpf:
+                return _normalize_dict({
+                    "status": "timeout",
+                    "error": "timeout",
+                    "request_id": request_id,
+                    "trace_id": trace_id or request_id
+                })
+            if "111" in applicant_masked_cpf:
+                return _normalize_dict({
+                    "kyc_approved": False,
+                    "identity_match": False,
+                    "document_valid": False,
+                    "status": "rejected",
+                    "reason": "identity_mismatch",
+                    "request_id": request_id,
+                    "trace_id": trace_id or request_id,
+                })
+        
         if self.scenario == "bureau_error":
             return _normalize_dict({"status": "error", "error": "timeout",
                     "request_id": request_id, "trace_id": trace_id or request_id})
@@ -210,6 +267,17 @@ class MockAgents:
     # [ORIGEM: compliance-agent/spec.md § Ferramenta: check_pld]
     def check_pld(self, applicant_masked_cpf: str,
                   request_id: str, trace_id: str = None) -> dict[str, Any]:
+        if applicant_masked_cpf and "222" in applicant_masked_cpf:
+            return _normalize_dict({
+                "pld_clear": False,
+                "sanctions_match": True,
+                "risk_level": "high",
+                "status": "rejected",
+                "reason": "sanctions_list_match",
+                "request_id": request_id,
+                "trace_id": trace_id or request_id,
+            })
+        
         if self.scenario == "compliance_fail":
             return _normalize_dict({
                 "pld_clear": False,

@@ -22,8 +22,69 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(os.path.abspath(__file__)),
 
 from gateway_auth import gateway_auth
 from mock_agents import MockAgents
+import re
 
 MODEL = "gemini-2.5-flash-lite"
+
+CPF_REGEX = re.compile(r'^[Xx\d]{3}\.[Xx\d]{3}\.[Xx\d]{3}-[\dXx]{2}$')
+UUID_REGEX = re.compile(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')
+
+def validate_compliance_request(req_data: dict, has_trace_id_header: bool) -> tuple[bool, dict]:
+    details = []
+    
+    # 1. applicant_masked_cpf
+    cpf = req_data.get("applicant_masked_cpf")
+    if cpf is None:
+        details.append({
+            "path": ["applicant_masked_cpf"],
+            "message": "applicant_masked_cpf é obrigatório"
+        })
+    elif not isinstance(cpf, str):
+        details.append({
+            "path": ["applicant_masked_cpf"],
+            "message": "applicant_masked_cpf deve ser uma string"
+        })
+    elif not CPF_REGEX.match(cpf):
+        details.append({
+            "path": ["applicant_masked_cpf"],
+            "message": "applicant_masked_cpf deve estar no formato mascarado XXX.XXX.XXX-XX"
+        })
+        
+    # 2. request_id
+    req_id = req_data.get("request_id")
+    if req_id is None:
+        details.append({
+            "path": ["request_id"],
+            "message": "request_id é obrigatório"
+        })
+    elif not isinstance(req_id, str) or not UUID_REGEX.match(req_id):
+        details.append({
+            "path": ["request_id"],
+            "message": "request_id deve ser um UUID válido"
+        })
+        
+    # 3. trace_id
+    trace_id = req_data.get("trace_id")
+    if trace_id is not None:
+        if not isinstance(trace_id, str) or not UUID_REGEX.match(trace_id):
+            details.append({
+                "path": ["trace_id"],
+                "message": "trace_id deve ser um UUID válido"
+            })
+            
+    if not trace_id and not has_trace_id_header:
+        details.append({
+            "path": ["trace_id"],
+            "message": "trace_id é obrigatório no corpo se o header X-Trace-Id não for enviado"
+        })
+        
+    if details:
+        return False, {
+            "error": "validation_error",
+            "details": details
+        }
+    return True, {}
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Definição das Ferramentas MCP (mcp-kyc) para o OpenAI SDK
@@ -174,15 +235,15 @@ def build_llm_client() -> OpenAI:
 # Fluxo Híbrido/Colapsado do Agente de Compliance
 # ─────────────────────────────────────────────────────────────────────────────
 
-def run_compliance_agent(scenario: str, request_id: str = None, trace_id: str = None) -> dict:
+def run_compliance_agent(scenario: str = "auto_approve", request_id: str = None, trace_id: str = None, applicant_masked_cpf: str = "XXX.XXX.XXX-99") -> dict:
     if not request_id:
         request_id = str(uuid.uuid4())
-    masked_cpf = "XXX.XXX.XXX-99"
     start = time.time()
 
     print(f"\n{'='*60}")
     print(f"  [AgentCompliance] request_id : {request_id}")
     print(f"  [AgentCompliance] cenário    : {scenario}")
+    print(f"  [AgentCompliance] CPF        : {applicant_masked_cpf}")
     print(f"{'='*60}\n")
 
     agents = MockAgents(scenario=scenario)
@@ -191,7 +252,7 @@ def run_compliance_agent(scenario: str, request_id: str = None, trace_id: str = 
 
     user_message = (
         f"{{\n"
-        f"  \"applicant_masked_cpf\": \"{masked_cpf}\",\n"
+        f"  \"applicant_masked_cpf\": \"{applicant_masked_cpf}\",\n"
         f"  \"request_id\": \"{request_id}\"\n"
         f"}}"
     )
@@ -230,7 +291,7 @@ def run_compliance_agent(scenario: str, request_id: str = None, trace_id: str = 
     
     # 1. Executa verify_kyc
     print("  [tool] Executando verify_kyc localmente...")
-    kyc_res = agents.verify_kyc(applicant_masked_cpf=masked_cpf, request_id=request_id, trace_id=trace_id)
+    kyc_res = agents.verify_kyc(applicant_masked_cpf=applicant_masked_cpf, request_id=request_id, trace_id=trace_id)
     executed_tools.append(("verify_kyc", kyc_res))
 
     kyc_ok = kyc_res.get("status") == "ok" and kyc_res.get("kyc_approved") is True
@@ -239,7 +300,7 @@ def run_compliance_agent(scenario: str, request_id: str = None, trace_id: str = 
     pld_res = None
     if kyc_ok:
         print("  [tool] KYC aprovado. Executando check_pld localmente...")
-        pld_res = agents.check_pld(applicant_masked_cpf=masked_cpf, request_id=request_id, trace_id=trace_id)
+        pld_res = agents.check_pld(applicant_masked_cpf=applicant_masked_cpf, request_id=request_id, trace_id=trace_id)
         executed_tools.append(("check_pld", pld_res))
     else:
         print("  [short-circuit] KYC não aprovado ou indisponível. Interrompendo sequência.")
@@ -250,7 +311,7 @@ def run_compliance_agent(scenario: str, request_id: str = None, trace_id: str = 
     lgpd_res = None
     if kyc_ok and pld_ok:
         print("  [tool] PLD aprovado. Executando verify_lgpd_consent localmente...")
-        lgpd_res = agents.verify_lgpd_consent(applicant_masked_cpf=masked_cpf, request_id=request_id, trace_id=trace_id)
+        lgpd_res = agents.verify_lgpd_consent(applicant_masked_cpf=applicant_masked_cpf, request_id=request_id, trace_id=trace_id)
         executed_tools.append(("verify_lgpd_consent", lgpd_res))
     elif kyc_ok:
         print("  [short-circuit] PLD não aprovado ou indisponível. Interrompendo sequência.")
@@ -268,7 +329,7 @@ def run_compliance_agent(scenario: str, request_id: str = None, trace_id: str = 
             "type": "function",
             "function": {
                 "name": name,
-                "arguments": json.dumps({"applicant_masked_cpf": masked_cpf, "request_id": request_id})
+                "arguments": json.dumps({"applicant_masked_cpf": applicant_masked_cpf, "request_id": request_id})
             }
         })
         # Registra o retorno
@@ -345,7 +406,57 @@ if __name__ == "__main__":
         from http.server import BaseHTTPRequestHandler, HTTPServer
         
         class ComplianceA2AHandler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                if self.path == '/health':
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/json')
+                    self.end_headers()
+                    health_res = {
+                        "status": "UP",
+                        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                    }
+                    self.wfile.write(json.dumps(health_res).encode('utf-8'))
+                    return
+                elif self.path == '/.well-known/agent.json':
+                    # Tenta ler do repositório compliance-agent
+                    paths_to_try = [
+                        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "compliance-agent", ".well-known", "agent.json")),
+                        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".well-known", "agent.json"))
+                    ]
+                    agent_card_content = None
+                    for card_path in paths_to_try:
+                        if os.path.exists(card_path):
+                            try:
+                                with open(card_path, "r", encoding="utf-8") as f:
+                                    agent_card_content = f.read()
+                                break
+                            except Exception:
+                                pass
+                    if agent_card_content:
+                        self.send_response(200)
+                        self.send_header('Content-Type', 'application/json; charset=utf-8')
+                        self.end_headers()
+                        self.wfile.write(agent_card_content.encode('utf-8'))
+                        return
+                    else:
+                        self.send_response(500)
+                        self.send_header('Content-Type', 'application/json')
+                        self.end_headers()
+                        self.wfile.write(json.dumps({"error": "internal_server_error", "message": "Falha ao recuperar o Agent Card"}).encode('utf-8'))
+                        return
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+                    self.wfile.write(b"Not Found")
+                    return
+
             def do_POST(self):
+                if self.path != '/v1/compliance':
+                    self.send_response(404)
+                    self.end_headers()
+                    self.wfile.write(b"Not Found")
+                    return
+
                 content_length = int(self.headers['Content-Length'])
                 post_data = self.rfile.read(content_length)
                 try:
@@ -356,14 +467,37 @@ if __name__ == "__main__":
                     self.wfile.write(b"Invalid JSON")
                     return
                     
-                scenario = req_data.get("scenario", "auto_approve")
-                request_id = req_data.get("request_id")
+                has_trace_id_header = 'X-Trace-Id' in self.headers
+                is_valid, err_response = validate_compliance_request(req_data, has_trace_id_header)
+                if not is_valid:
+                    self.send_response(422)
+                    self.send_header('Content-Type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps(err_response).encode('utf-8'))
+                    return
+
+                applicant_masked_cpf = req_data["applicant_masked_cpf"]
+                request_id = req_data["request_id"]
                 trace_id = req_data.get("trace_id") or self.headers.get("X-Trace-Id") or request_id
                 
+                # Simulação de Timeout de SLA (CPF contendo "333")
+                if "333" in applicant_masked_cpf:
+                    print("  [A2A] Simulando atraso de timeout regulatório de 5.1s...")
+                    time.sleep(5.1)
+
+                scenario = "auto_approve"
+                if "111" in applicant_masked_cpf or "222" in applicant_masked_cpf or "333" in applicant_masked_cpf:
+                    scenario = "compliance_fail"
+
                 print(f"  [A2A] Recebido request em compliance_agent (trace_id={trace_id})")
                 
                 # Executa o compliance agent com propagação do trace_id
-                result = run_compliance_agent(scenario=scenario, request_id=request_id, trace_id=trace_id)
+                result = run_compliance_agent(
+                    scenario=scenario,
+                    request_id=request_id,
+                    trace_id=trace_id,
+                    applicant_masked_cpf=applicant_masked_cpf
+                )
                 result["trace_id"] = trace_id
                 
                 response_data = json.dumps(result).encode('utf-8')
