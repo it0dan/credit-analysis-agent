@@ -179,6 +179,51 @@
       "approved_amount": null,
       "justification": "Solicitação encaminhada para análise humana devido ao valor exceder o limite de aprovação automática (R$ 50.000). Análise prévia indica bom perfil de crédito.",
       "timestamp": "2026-05-31T20:24:38Z"
+    },
+    {
+      "request_id": "7780cc66",
+      "status": "rejected",
+      "decision": "rejected",
+      "requested_amount": 15000.0,
+      "approved_amount": 0,
+      "justification": "Compliance check failed: KYC and PLD were not approved.",
+      "timestamp": "2026-06-01T00:24:08Z"
+    },
+    {
+      "request_id": "7becdd36",
+      "status": "pending_human_review",
+      "decision": "pending",
+      "requested_amount": 10000.0,
+      "approved_amount": null,
+      "justification": "Falha de disponibilidade no Bureau de Crédito e impossibilidade de validação de documentos.",
+      "timestamp": "2026-06-01T00:24:09Z"
+    },
+    {
+      "request_id": "13238fa7",
+      "status": "approved",
+      "decision": "approved",
+      "requested_amount": 20000.0,
+      "approved_amount": 20000.0,
+      "justification": "Score 780, renda R$8k confirmada, risco baixo, compliance ok.",
+      "timestamp": "2026-06-01T00:24:11Z"
+    },
+    {
+      "request_id": "762bd11e",
+      "status": "pending_human_review",
+      "decision": "pending",
+      "requested_amount": 10000.0,
+      "approved_amount": null,
+      "justification": "Ambas as ferramentas de verificação de bureau e validação de documentos falharam com timeout, indicando indisponibilidade técnica. Necessário fallback para análise humana.",
+      "timestamp": "2026-06-01T00:24:15Z"
+    },
+    {
+      "request_id": "40620e46",
+      "status": "pending_human_review",
+      "decision": "pending",
+      "requested_amount": 80000.0,
+      "approved_amount": null,
+      "justification": "Solicitação encaminhada para análise humana devido ao valor exceder o limite de aprovação automática (R$ 50.000). Score 800, renda R$15k confirmada, risco muito baixo, compliance ok.",
+      "timestamp": "2026-06-01T00:24:15Z"
     }
   ]
 }

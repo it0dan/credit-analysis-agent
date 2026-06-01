@@ -64,4 +64,4 @@ A paralelização de sub-agentes independentes provou ser indispensável para sa
 
 * ADR-001: Sequência serial vs paralelo (revogado)
 * ADR-003: Do loop híbrido ao loop agêntico puro
-* `credit-analysis-demo/orchestrator.py` v2 — implementação de loop puro híbrido
+* `src/orchestrator.py` v2 — implementação de loop puro híbrido
