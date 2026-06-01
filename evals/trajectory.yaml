@@ -5,7 +5,7 @@
 description: "AgentOrchestrator — Trajectory and Policy Evals (v2 Target)"
 
 providers:
-  - id: "exec:../.venv/bin/python ../orchestrator_provider.py --scenario {{scenario}} --amount {{amount}}"
+  - id: "exec:../src/.venv/bin/python ../src/orchestrator_provider.py --scenario {{scenario}} --amount {{amount}}"
 
 tests:
   # ─────────────────────────────────────────────────────────────────────────

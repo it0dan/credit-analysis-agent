@@ -8,12 +8,12 @@ echo "=========================================================="
 
 # 1. Obter Token do Sensedia AI Gateway
 echo "Obtendo token de acesso do Sensedia AI Gateway..."
-cd credit-analysis-demo
+cd src
 TOKEN=$(.venv/bin/python -c "from dotenv import load_dotenv; load_dotenv(); from gateway_auth import gateway_auth; print(gateway_auth.get_token())")
 cd ..
 
 if [ -z "$TOKEN" ] || [ ${#TOKEN} -lt 20 ]; then
-  echo "❌ Erro: Não foi possível obter o token do gateway. Verifique as credenciais em credit-analysis-demo/.env."
+  echo "❌ Erro: Não foi possível obter o token do gateway. Verifique as credenciais em src/.env."
   exit 1
 fi
 
@@ -22,13 +22,13 @@ export AI_GATEWAY_TOKEN=$TOKEN
 
 # 2. Configurações individuais
 CONFIGS=(
-  "credit-analysis-demo/evals/orchestrator.yaml"
-  "credit-analysis-demo/evals/trajectory.yaml"
-  "credit-analysis-openspec/openspec/changes/archive/add-bureau-agent/evals/bureau.yaml"
-  "credit-analysis-openspec/openspec/changes/archive/add-documents-agent/evals/documents.yaml"
-  "credit-analysis-openspec/openspec/changes/archive/add-compliance-agent/evals/compliance.yaml"
-  "credit-analysis-openspec/openspec/changes/archive/add-risk-agent/evals/risk.yaml"
-  "credit-analysis-openspec/openspec/changes/archive/add-decision-agent/evals/decision.yaml"
+  "evals/orchestrator.yaml"
+  "evals/trajectory.yaml"
+  "openspec/changes/archive/add-bureau-agent/evals/bureau.yaml"
+  "openspec/changes/archive/add-documents-agent/evals/documents.yaml"
+  "openspec/changes/archive/add-compliance-agent/evals/compliance.yaml"
+  "openspec/changes/archive/add-risk-agent/evals/risk.yaml"
+  "openspec/changes/archive/add-decision-agent/evals/decision.yaml"
 )
 
 # 3. Execução individualizada

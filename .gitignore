@@ -23,7 +23,7 @@ evals/eval-results.json
 .promptfoo/
 
 # Development scratch files
-credit-analysis-demo/scratch/
+src/scratch/
 **/scratch/
 inspect_gateway.py
 inspect_sequential.py

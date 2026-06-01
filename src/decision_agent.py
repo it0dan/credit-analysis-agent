@@ -32,12 +32,12 @@ def load_decision_prompt() -> str:
     paths_to_try = [
         os.path.join(
             os.path.dirname(__file__), "..",
-            "credit-analysis-openspec", "openspec",
+            "openspec",
             "changes", "archive", "add-decision-agent", "prompt.md",
         ),
         os.path.join(
             os.path.dirname(__file__), "..",
-            "credit-analysis-openspec", "openspec",
+            "openspec",
             "changes", "add-decision-agent", "prompt.md",
         ),
         # Fallback local

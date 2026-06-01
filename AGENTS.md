@@ -16,15 +16,11 @@ Construindo Sistemas Multiagentes Eficientes".
 
 ```bash
 # Executar orquestrador
-cd credit-analysis-mas/credit-analysis-demo
+cd src
 python orchestrator.py
 
 # Executar evals
-cd credit-analysis-mas/credit-analysis-demo/evals
-promptfoo eval -c orchestrator.yaml
-promptfoo eval -c trajectory.yaml
-promptfoo eval -c bureau.yaml
-promptfoo eval -c compliance.yaml
+./run_all_evals.sh
 
 # Variáveis de ambiente obrigatórias (nunca commitar valores)
 AI_GATEWAY_CLIENT_ID=
@@ -61,18 +57,18 @@ Short-circuit em qualquer turno → handoff imediato para HITL.
 ## Estrutura de arquivos relevante
 
 ```
-credit-analysis-mas/
-├── credit-analysis-demo/
+├── src/
 │   ├── orchestrator.py           ← loop agêntico puro (não modificar sem ADR)
 │   ├── orchestrator_provider.py  ← provider determinístico para PromptFoo
 │   ├── mock_agents.py            ← envelope normalizado p/ Gateway (v2)
 │   ├── gateway_auth.py           ← OAuth2 client credentials
 │   ├── compliance_agent.py       ← servidor HTTP A2A local porta 8085 (FALLBACK)
 │   ├── episodic_memory.json      ← event store por CPF mascarado
-│   └── evals/
-│       ├── orchestrator.yaml     ← 12/12 ✓
-│       └── trajectory.yaml       ← cenários T1/T2/T3 ✓
-└── credit-analysis-openspec/openspec/
+│   └── run_evals.sh              ← script utilitário de evals do gateway
+├── evals/
+│   ├── orchestrator.yaml     ← 12/12 ✓
+│   └── trajectory.yaml       ← cenários T1/T2/T3 ✓
+└── openspec/
     ├── project.md                ← MODELO CANÔNICO — ler antes de trabalho arquitetural
     ├── specs/credit-analysis/spec.md
     ├── adr/                      ← ADR-002, ADR-004, ADR-005 vigentes
@@ -83,9 +79,9 @@ credit-analysis-mas/
 
 Antes de propor qualquer mudança arquitetural, leia:
 
-1. `credit-analysis-mas/credit-analysis-openspec/openspec/project.md`
-2. `credit-analysis-mas/credit-analysis-openspec/openspec/specs/credit-analysis/spec.md`
-3. ADRs vigentes: `adr/adr-002-a2a-vs-direct-tools.md`, `adr/adr-004-hybrid-parallel-serial.md`, `adr/adr-005-compliance-versioning.md`
+1. `openspec/project.md`
+2. `openspec/specs/credit-analysis/spec.md`
+3. ADRs vigentes: `openspec/adr/adr-002-a2a-vs-direct-tools.md`, `openspec/adr/adr-004-hybrid-parallel-serial.md`, `openspec/adr/adr-005-compliance-versioning.md`
 
 NÃO leia ADR-001 (SUPERSEDED) nem ADR-003 (REVISED) como referência de decisão.
 

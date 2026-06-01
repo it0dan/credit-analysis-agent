@@ -158,4 +158,4 @@ Para gerenciar o ciclo de evolução do contrato sem gerar atritos, são estabel
 
 * Google A2A Specification (`/.well-known/agent.json`) em `compliance-agent-card.json`
 * ADR-002 (Delegação via A2A) em `openspec/adr/adr-002-a2a-vs-direct-tools.md`
-* Especificações gerais de contratos em `credit-analysis-openspec/openspec/specs/credit-analysis/spec.md`
+* Especificações gerais de contratos em `openspec/specs/credit-analysis/spec.md`

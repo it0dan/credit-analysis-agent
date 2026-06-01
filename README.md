@@ -11,24 +11,21 @@ A versão **v2** introduz uma homologação completa da arquitetura-alvo com 100
 ```
 credit-analysis-agent/
 ├── README.md                          ← Documentação geral da arquitetura
-└── credit-analysis-mas/               ← Módulo Multi-Agent System (MAS)
-    ├── run_all_evals.sh               ← Orquestrador global de testes/evals
-    ├── credit-analysis-openspec/      ← Contratos OpenAPI e esquemas de dados oficiais
-    └── credit-analysis-demo/          ← Implementação de referência do runtime
-        ├── .env.example               ← Variáveis de ambiente (copiar para .env)
-        ├── gateway_auth.py            ← Autenticação OAuth2 no Sensedia AI Gateway
-        ├── mock_agents.py             ← Provedor de ferramentas locais para simulações
-        ├── bureau_agent.py            ← Contrato e esquemas de validação do AgentBureau
-        ├── compliance_agent.py        ← Runtime do AgentCompliance (com servidor HTTP A2A)
-        ├── risk_agent.py              ← Contrato e esquemas do AgentRisk
-        ├── decision_agent.py          ← Contrato e esquemas do AgentDecision
-        ├── episodic_memory.json       ← Repositório JSON persistente de memória episódica (LTM)
-        ├── orchestrator.py            ← Orquestrador principal com loop agêntico autoreparável
-        ├── orchestrator_provider.py   ← Provedor Promptfoo isolado para parsing determinístico de JSON
-        ├── run_evals.sh               ← Script local de execução de evals clássicos
-        └── evals/
-            ├── orchestrator.yaml      ← Testes clássicos de decisão (12 assertions)
-            └── trajectory.yaml        ← Evals de trajetórias de fluxo v2 (5 cenários)
+├── run_all_evals.sh                   ← Orquestrador global de testes/evals
+├── openspec/                          ← Contratos OpenAPI e esquemas de dados oficiais
+├── evals/                             ← Evals de trajetórias de fluxo v2 (5 cenários)
+└── src/                               ← Implementação de referência do runtime
+    ├── .env.example                   ← Variáveis de ambiente (copiar para .env)
+    ├── gateway_auth.py            ← Autenticação OAuth2 no Sensedia AI Gateway
+    ├── mock_agents.py             ← Provedor de ferramentas locais para simulações
+    ├── bureau_agent.py            ← Contrato e esquemas de validação do AgentBureau
+    ├── compliance_agent.py        ← Runtime do AgentCompliance (com servidor HTTP A2A)
+    ├── risk_agent.py              ← Contrato e esquemas do AgentRisk
+    ├── decision_agent.py          ← Contrato e esquemas do AgentDecision
+    ├── episodic_memory.json       ← Repositório JSON persistente de memória episódica (LTM)
+    ├── orchestrator.py            ← Orquestrador principal com loop agêntico autoreparável
+    ├── orchestrator_provider.py   ← Provedor Promptfoo isolado para parsing determinístico de JSON
+    └── run_evals.sh               ← Script local de execução de evals clássicos
 ```
 
 ---
@@ -104,7 +101,7 @@ A suite de testes cobre 5 fluxos fundamentais descritos em `evals/trajectory.yam
 
 ### Instalação das dependências
 ```bash
-cd credit-analysis-mas/credit-analysis-demo
+cd src
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt   # Ou: pip install openai httpx python-dotenv
@@ -133,15 +130,13 @@ Temos duas suites de validação prontas que garantem 100% de compatibilidade e 
 ### 1. Rodar os testes de Trajetória (Cenários v2):
 Executa o Promptfoo com a nova especificação de testes de comportamento de fluxo:
 ```bash
-cd credit-analysis-mas/credit-analysis-demo
-export AI_GATEWAY_TOKEN=$(python3 -c "from gateway_auth import gateway_auth; print(gateway_auth.get_token())")
+export AI_GATEWAY_TOKEN=$(src/.venv/bin/python -c "from dotenv import load_dotenv; load_dotenv(); from gateway_auth import gateway_auth; print(gateway_auth.get_token())")
 npx promptfoo eval --config evals/trajectory.yaml
 ```
 
 ### 2. Rodar a Suite Global de Homologação:
-O script unificado na pasta raiz do MAS executa sequencialmente todos os testes, garantindo retrocompatibilidade total com as validações clássicas de decisão e novos contratos:
+O script unificado na pasta raiz executa sequencialmente todos os testes, garantindo retrocompatibilidade total com as validações clássicas de decisão e novos contratos:
 ```bash
-cd credit-analysis-mas
 ./run_all_evals.sh
 ```
 

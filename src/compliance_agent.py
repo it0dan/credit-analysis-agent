@@ -85,12 +85,12 @@ def load_compliance_prompt() -> str:
     paths_to_try = [
         os.path.join(
             os.path.dirname(__file__), "..",
-            "credit-analysis-openspec", "openspec",
+            "openspec",
             "changes", "add-compliance-agent", "prompt.md",
         ),
         os.path.join(
             os.path.dirname(__file__), "..",
-            "credit-analysis-openspec", "openspec",
+            "openspec",
             "changes", "archive", "add-compliance-agent", "prompt.md",
         ),
         # Fallback local
