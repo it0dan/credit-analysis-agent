@@ -82,7 +82,7 @@ threshold HITL, fallbacks, LGPD) foram movidas integralmente para o
 - `trajectory_log` por análise habilita trajectory evals no PromptFoo
   (validação de sequência, short-circuit, compliance-never-skipped)
 - LLM pode adaptar a sequência a contextos inesperados
-- Alinhado com o modelo de referência da palestra e com o ADR-002
+- Alinhado com o modelo de referência e com o ADR-002
   (A2A: orquestrador coordena, sub-agentes executam)
 - FinOps real: tokens acumulados por turno via `response.usage`
 

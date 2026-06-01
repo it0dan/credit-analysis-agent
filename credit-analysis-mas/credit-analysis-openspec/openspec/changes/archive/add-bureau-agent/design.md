@@ -113,7 +113,7 @@ tem acesso ao CPF real via vault/key management — fora do escopo do agente.
 - O AgentBureau nunca deve ter acesso ao CPF real — princípio do menor privilégio
 - O de-mascaramento é responsabilidade da infraestrutura (MCP Server),
   não da lógica do agente
-- Isso mantém o contrato de isolamento de contexto da palestra
+- Isso mantém o contrato de isolamento de contexto
 
 **Consequência:**
 - O schema do `mcp-bureau` recebe `applicant_masked_cpf` como input
