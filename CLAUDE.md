@@ -1,7 +1,6 @@
 @AGENTS.md
 
-## Claude-specific
-
-- Use plan mode antes de qualquer modificação em `orchestrator.py`
-- Ao gerar código Python, siga PEP 8 com type hints explícitos em todas as funções
-- Ao encerrar sessão, atualize `.agent/handoff.md` com estado atual antes de finalizar
+## Overrides para Claude
+- Ao modificar orchestrator.py: sempre verificar ADRs vigentes antes de qualquer mudança
+- Não sugerir chamada direta a agentes — obrigatório passar pelo Gateway
+- Ao criar novos arquivos Python: seguir convenção snake_case do projeto
