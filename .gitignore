@@ -27,3 +27,10 @@ credit-analysis-demo/scratch/
 **/scratch/
 inspect_gateway.py
 inspect_sequential.py
+
+# --- context engineering: artefatos de sessão (efêmeros, não versionar) ---
+.agent/handoff.md
+
+# overrides pessoais de contexto de agente
+CLAUDE.local.md
+.agents.local.md
