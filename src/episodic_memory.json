@@ -458,6 +458,60 @@
       "approved_amount": null,
       "justification": "reason: threshold_exceeded",
       "timestamp": "2026-06-02T00:32:18Z"
+    },
+    {
+      "request_id": "1970baed",
+      "status": "approved",
+      "decision": "approved",
+      "requested_amount": 80000.0,
+      "approved_amount": 80000.0,
+      "justification": "Análise de crédito aprovada. O solicitante possui score de crédito bom, renda compatível e atende aos critérios de compliance.",
+      "timestamp": "2026-06-02T00:40:05Z"
+    },
+    {
+      "request_id": "a23bdfa7",
+      "status": "pending_human_review",
+      "decision": "pending",
+      "requested_amount": 10000.0,
+      "approved_amount": null,
+      "justification": "fallback_error devido à indisponibilidade de sub-agentes. Flags: bureau_unavailable.",
+      "timestamp": "2026-06-02T00:40:20Z"
+    },
+    {
+      "request_id": "68af76ed",
+      "status": "rejected",
+      "decision": "rejected",
+      "requested_amount": 15000.0,
+      "approved_amount": 0,
+      "justification": "Compliance check failed: KYC and PLD were not approved.",
+      "timestamp": "2026-06-02T00:40:22Z"
+    },
+    {
+      "request_id": "252063f5",
+      "status": "pending_human_review",
+      "decision": "pending",
+      "requested_amount": 10000.0,
+      "approved_amount": null,
+      "justification": "fallback_error devido à indisponibilidade de sub-agentes. Flags: bureau_unavailable, docs_unverified.",
+      "timestamp": "2026-06-02T00:40:27Z"
+    },
+    {
+      "request_id": "64193195",
+      "status": "approved",
+      "decision": "approved",
+      "requested_amount": 20000.0,
+      "approved_amount": 20000.0,
+      "justification": "Score 780, renda R$8k confirmada, risco baixo, compliance ok.",
+      "timestamp": "2026-06-02T00:40:28Z"
+    },
+    {
+      "request_id": "bc004309",
+      "status": "pending_human_review",
+      "decision": "pending",
+      "requested_amount": 80000.0,
+      "approved_amount": null,
+      "justification": "Análise de crédito para valor acima de R$50.000,00 requer revisão humana após aprovação de compliance.",
+      "timestamp": "2026-06-02T00:40:49Z"
     }
   ]
 }

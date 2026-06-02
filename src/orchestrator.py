@@ -44,6 +44,10 @@ from openai import OpenAI
 
 from gateway_auth import gateway_auth
 from mock_agents import MockAgents
+from otel_setup import get_tracer
+from opentelemetry import trace
+from opentelemetry.trace import Link, SpanContext
+from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Constantes
@@ -444,6 +448,27 @@ def resume_analysis(state: dict, decision_input: dict) -> dict:
     trace_id = state["trace_id"]
     cpf_masked = state["cpf_masked"]
     
+    link = None
+    traceparent = state.get("traceparent")
+    if traceparent:
+        try:
+            propagator = TraceContextTextMapPropagator()
+            extracted_context = propagator.extract(carrier={"traceparent": traceparent})
+            from opentelemetry.trace import get_span_context
+            original_span_context = get_span_context(extracted_context)
+            if original_span_context and original_span_context.is_valid:
+                link = Link(context=original_span_context)
+                print(f"  [otel] Link de span criado com sucesso a partir de traceparent: {traceparent}")
+        except Exception as e:
+            print(f"  [otel] Falha ao criar link de span: {e}")
+            
+    tracer = get_tracer("orchestrator")
+    span_t3 = tracer.start_span("analysis.t3", links=[link] if link else None)
+    from opentelemetry.trace import set_span_in_context
+    from opentelemetry.context import attach, detach
+    ctx = set_span_in_context(span_t3)
+    token = attach(ctx)
+    
     t1 = state["t1_results"]
     t2 = state["t2_results"]
     
@@ -536,6 +561,36 @@ def resume_analysis(state: dict, decision_input: dict) -> dict:
     result["processing_time_ms"] = int((time.time() - start_time) * 1000)
     result["estimated_cost_brl"] = round(finops.estimated_cost_brl, 6)
     
+    # Enrich output metadata with trace context W3C fields
+    span_context = span_t3.get_span_context() if span_t3 else None
+    if span_context and span_context.is_valid:
+        trace_id_hex = f"{span_context.trace_id:032x}"
+        span_id_hex = f"{span_context.span_id:016x}"
+        trace_flags_hex = f"{span_context.trace_flags:02x}"
+        traceparent = f"00-{trace_id_hex}-{span_id_hex}-{trace_flags_hex}"
+        span_id_str = span_id_hex
+    else:
+        traceparent = f"00-{trace_id.replace('-', '')}-0000000000000000-01"
+        span_id_str = "0000000000000000"
+
+    result["_meta"] = {
+        "finops": {
+            "estimated_cost_brl": round(finops.estimated_cost_brl, 6),
+            "trace_id": traceparent,
+            "span_id": span_id_str
+        }
+    }
+
+    # End span_t3
+    if span_t3:
+        span_t3.set_attribute("cpf_masked", cpf_masked)
+        span_t3.set_attribute("agents_called", ["bureau_get_score", "documents_validate", "risk_evaluate", "compliance_check", "decision_synthesize", "handoff_to_human"])
+        span_t3.set_attribute("hitl_triggered", False)
+        span_t3.set_attribute("cost_brl", round(finops.estimated_cost_brl, 6))
+        span_t3.end()
+
+    detach(token)
+
     save_episodic_memory(cpf_masked, result)
     hitl_store.delete_hitl_state(request_id)
     
@@ -581,6 +636,11 @@ def execute_tool(name: str, args: dict, agents: MockAgents, trace_id: str = None
             "Content-Type": "application/json",
             "X-Trace-Id": tr_id
         }
+        try:
+            propagator = TraceContextTextMapPropagator()
+            propagator.inject(headers)
+        except Exception:
+            pass
         
         print(f"  [A2A] Iniciando chamada HTTP real (A2A direto) para {url} (trace_id={tr_id})...")
         req = urllib.request.Request(
@@ -729,10 +789,24 @@ def build_llm_client() -> OpenAI:
     """
     token = gateway_auth.get_token()
     base_url = os.environ["AI_GATEWAY_LLM_BASE_URL"].removesuffix("/chat/completions")
+    
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        propagator = TraceContextTextMapPropagator()
+        propagator.inject(headers)
+        current_span = trace.get_current_span()
+        span_context = current_span.get_span_context() if current_span else None
+        if span_context and span_context.is_valid:
+            trace_id_hex = f"{span_context.trace_id:032x}"
+            trace_id_str = f"{trace_id_hex[:8]}-{trace_id_hex[8:12]}-{trace_id_hex[12:16]}-{trace_id_hex[16:20]}-{trace_id_hex[20:]}"
+            headers["X-Trace-Id"] = trace_id_str
+    except Exception:
+        pass
+        
     return OpenAI(
         base_url=base_url,
         api_key="not-used",
-        default_headers={"Authorization": f"Bearer {token}"},
+        default_headers=headers,
     )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -745,6 +819,18 @@ def run_orchestrator(scenario: str, amount: float) -> dict:
     trace_id   = str(uuid.uuid4())
     masked_cpf = "XXX.XXX.XXX-99"
     start      = time.time()
+
+    tracer = get_tracer("orchestrator")
+    root_span = tracer.start_span("analysis.orchestrator")
+    from opentelemetry.trace import set_span_in_context
+    from opentelemetry.context import attach, detach
+    ctx = set_span_in_context(root_span)
+    token = attach(ctx)
+
+    span_t1 = tracer.start_span("analysis.t1")
+    span_t2 = None
+    span_t3 = None
+    current_span = span_t1
 
     print(f"\n{'='*60}")
     print(f"  request_id : {request_id}")
@@ -1041,7 +1127,47 @@ def run_orchestrator(scenario: str, amount: float) -> dict:
                     "hitl_triggered_by": "orchestrator",
                     "requested_amount": amount
                 }
+                root_span_context = root_span.get_span_context() if root_span else None
+                if root_span_context and root_span_context.is_valid:
+                    trace_id_hex = f"{root_span_context.trace_id:032x}"
+                    span_id_hex = f"{root_span_context.span_id:016x}"
+                    trace_flags_hex = f"{root_span_context.trace_flags:02x}"
+                    traceparent = f"00-{trace_id_hex}-{span_id_hex}-{trace_flags_hex}"
+                    span_id_str = span_id_hex
+                else:
+                    traceparent = f"00-{trace_id.replace('-', '')}-0000000000000000-01"
+                    span_id_str = "0000000000000000"
+
+                state_dict["traceparent"] = traceparent
                 
+                # End OTel spans
+                if span_t1:
+                    span_t1.set_attribute("cpf_masked", masked_cpf)
+                    span_t1.set_attribute("agents_called", [t["tool"] for t in trajectory_log])
+                    span_t1.set_attribute("hitl_triggered", True)
+                    span_t1.set_attribute("cost_brl", round(finops.estimated_cost_brl, 6))
+                    span_t1.end()
+                if span_t2:
+                    span_t2.set_attribute("cpf_masked", masked_cpf)
+                    span_t2.set_attribute("agents_called", [t["tool"] for t in trajectory_log])
+                    span_t2.set_attribute("hitl_triggered", True)
+                    span_t2.set_attribute("cost_brl", round(finops.estimated_cost_brl, 6))
+                    span_t2.end()
+                if span_t3:
+                    span_t3.set_attribute("cpf_masked", masked_cpf)
+                    span_t3.set_attribute("agents_called", [t["tool"] for t in trajectory_log])
+                    span_t3.set_attribute("hitl_triggered", True)
+                    span_t3.set_attribute("cost_brl", round(finops.estimated_cost_brl, 6))
+                    span_t3.end()
+                    
+                root_span.set_attribute("cpf_masked", masked_cpf)
+                root_span.set_attribute("agents_called", [t["tool"] for t in trajectory_log])
+                root_span.set_attribute("hitl_triggered", True)
+                root_span.set_attribute("cost_brl", round(finops.estimated_cost_brl, 6))
+                root_span.end()
+                
+                detach(token)
+
                 serialize_and_pause(state_dict, reason)
                 
                 processing_ms = int((time.time() - start) * 1000)
@@ -1067,6 +1193,9 @@ def run_orchestrator(scenario: str, amount: float) -> dict:
                     }
                 }
                 
+                decision_record["_meta"]["finops"]["trace_id"] = traceparent
+                decision_record["_meta"]["finops"]["span_id"] = span_id_str
+                
                 if reason == "fallback_error" or scenario in ["bureau_error", "multi_error"]:
                     decision_record["justification"] = "fallback_error devido à indisponibilidade de sub-agentes."
                     if scenario == "multi_error" or "validate" in [t["tool"] for t in trajectory_log if not t["result_ok"]]:
@@ -1085,8 +1214,49 @@ def run_orchestrator(scenario: str, amount: float) -> dict:
                 args["risk_result"] = agents.risk_evaluate(bureau_score=780, income_value=8000, requested_amount=amount, request_id=args.get("request_id") or request_id, trace_id=trace_id)
                 args["compliance_result"] = agents.compliance_check(applicant_masked_cpf="XXX.XXX.XXX-99", request_id=args.get("request_id") or request_id, trace_id=trace_id)
 
+            # Transition spans:
+            if name == "compliance_check":
+                if span_t1:
+                    span_t1.set_attribute("cpf_masked", masked_cpf)
+                    span_t1.set_attribute("agents_called", [t["tool"] for t in trajectory_log])
+                    span_t1.set_attribute("hitl_triggered", False)
+                    span_t1.set_attribute("cost_brl", round(finops.estimated_cost_brl, 6))
+                    span_t1.end()
+                    span_t1 = None
+                if not span_t2:
+                    span_t2 = tracer.start_span("analysis.t2")
+                    current_span = span_t2
+            elif name == "decision_synthesize":
+                if span_t2:
+                    span_t2.set_attribute("cpf_masked", masked_cpf)
+                    span_t2.set_attribute("agents_called", [t["tool"] for t in trajectory_log])
+                    span_t2.set_attribute("hitl_triggered", False)
+                    span_t2.set_attribute("cost_brl", round(finops.estimated_cost_brl, 6))
+                    span_t2.end()
+                    span_t2 = None
+                if not span_t3:
+                    span_t3 = tracer.start_span("analysis.t3")
+                    current_span = span_t3
+
             print(f"  [tool] {name}({json.dumps(args, ensure_ascii=False)})")
+            tool_start_time = time.time()
             result = execute_tool(name, args, agents, trace_id=trace_id)
+            tool_latency_ms = int((time.time() - tool_start_time) * 1000)
+            
+            res_status = result.get("status", "ok") if isinstance(result, dict) else "ok"
+            if res_status == "timeout":
+                tool_outcome = "timeout"
+            elif res_status == "error" or (isinstance(result, dict) and (not result.get("kyc_approved", True) or not result.get("pld_clear", True))):
+                tool_outcome = "fail"
+            else:
+                tool_outcome = "success"
+                
+            if current_span:
+                current_span.add_event("tool_call", {
+                    "agent": name,
+                    "result": tool_outcome,
+                    "latency_ms": tool_latency_ms
+                })
 
             # --- CORREÇÃO ENVELOPE (fixes MALFORMED_FUNCTION_CALL) ---
             # Envelopamos o resultado exatamente no formato que o Sensedia AI Gateway retorna em produção.
@@ -1182,11 +1352,54 @@ def run_orchestrator(scenario: str, amount: float) -> dict:
     # Injetamos o FinOps pricing como campo de primeira classe na decisão (roadmap #2)
     decision["estimated_cost_brl"] = round(finops.estimated_cost_brl, 6)
 
+    root_span_context = root_span.get_span_context() if root_span else None
+    if root_span_context and root_span_context.is_valid:
+        trace_id_hex = f"{root_span_context.trace_id:032x}"
+        span_id_hex = f"{root_span_context.span_id:016x}"
+        trace_flags_hex = f"{root_span_context.trace_flags:02x}"
+        traceparent = f"00-{trace_id_hex}-{span_id_hex}-{trace_flags_hex}"
+        span_id_str = span_id_hex
+    else:
+        traceparent = f"00-{trace_id.replace('-', '')}-0000000000000000-01"
+        span_id_str = "0000000000000000"
+
+    finops_summary = finops.summary()
+    finops_summary["trace_id"] = traceparent
+    finops_summary["span_id"] = span_id_str
+
     decision["_meta"] = {
         "loop_turns":          turn,
         "trajectory":          trajectory_log,
-        "finops":              finops.summary(),
+        "finops":              finops_summary,
     }
+
+    # End OTel spans
+    if span_t1:
+        span_t1.set_attribute("cpf_masked", masked_cpf)
+        span_t1.set_attribute("agents_called", [t["tool"] for t in trajectory_log])
+        span_t1.set_attribute("hitl_triggered", False)
+        span_t1.set_attribute("cost_brl", round(finops.estimated_cost_brl, 6))
+        span_t1.end()
+    if span_t2:
+        span_t2.set_attribute("cpf_masked", masked_cpf)
+        span_t2.set_attribute("agents_called", [t["tool"] for t in trajectory_log])
+        span_t2.set_attribute("hitl_triggered", False)
+        span_t2.set_attribute("cost_brl", round(finops.estimated_cost_brl, 6))
+        span_t2.end()
+    if span_t3:
+        span_t3.set_attribute("cpf_masked", masked_cpf)
+        span_t3.set_attribute("agents_called", [t["tool"] for t in trajectory_log])
+        span_t3.set_attribute("hitl_triggered", False)
+        span_t3.set_attribute("cost_brl", round(finops.estimated_cost_brl, 6))
+        span_t3.end()
+        
+    root_span.set_attribute("cpf_masked", masked_cpf)
+    root_span.set_attribute("agents_called", [t["tool"] for t in trajectory_log])
+    root_span.set_attribute("hitl_triggered", False)
+    root_span.set_attribute("cost_brl", round(finops.estimated_cost_brl, 6))
+    root_span.end()
+    
+    detach(token)
 
     # Persiste na Memória Episódica
     save_episodic_memory(masked_cpf, decision)
