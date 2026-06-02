@@ -791,6 +791,24 @@
       "approved_amount": 0,
       "justification": "Compliance check failed: KYC and PLD were not approved.",
       "timestamp": "2026-06-02T01:29:22Z"
+    },
+    {
+      "request_id": "245a163a",
+      "status": "rejected",
+      "decision": "rejected",
+      "requested_amount": 13000.0,
+      "approved_amount": 0,
+      "justification": "Compliance check failed: KYC and PLD not approved.",
+      "timestamp": "2026-06-02T01:31:46Z"
+    },
+    {
+      "request_id": "c94b18b6",
+      "status": "pending_human_review",
+      "decision": "pending",
+      "requested_amount": 2121312390.0,
+      "approved_amount": null,
+      "justification": "reason: threshold_exceeded",
+      "timestamp": "2026-06-02T01:48:11Z"
     }
   ]
 }
