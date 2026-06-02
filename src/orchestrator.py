@@ -816,8 +816,10 @@ def build_llm_client() -> OpenAI:
 # O LLM dirige. O harness executa. Nenhuma regra de negócio no código Python.
 # ─────────────────────────────────────────────────────────────────────────────
 
-def run_orchestrator(scenario: str, amount: float) -> dict:
-    request_id = str(uuid.uuid4())[:8]
+def run_orchestrator(scenario: str, amount: float, request_id: str = None) -> dict:
+    if not request_id:
+        request_id = str(uuid.uuid4())[:8]
+
     trace_id   = str(uuid.uuid4())
     masked_cpf = "XXX.XXX.XXX-99"
     start      = time.time()

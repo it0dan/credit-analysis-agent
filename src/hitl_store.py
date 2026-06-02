@@ -95,3 +95,29 @@ def delete_hitl_state(request_id: str) -> None:
     if request_id in _in_memory_store:
         del _in_memory_store[request_id]
         print(f"  [hitl_store] Estado deletado da memória para {request_id}.")
+
+def list_all_hitl_states() -> list[dict]:
+    """
+    Retorna uma lista com todos os estados HITL ativos e não expirados.
+    """
+    states = []
+    r = _get_redis_client()
+    if r:
+        try:
+            keys = r.keys("hitl:analysis:*")
+            for key in keys:
+                payload_str = r.get(key)
+                if payload_str:
+                    states.append(json.loads(payload_str))
+            return states
+        except Exception as e:
+            print(f"  [hitl_store] Erro ao listar chaves do Redis: {e}.")
+    
+    # Fallback in-memory
+    for request_id, item in list(_in_memory_store.items()):
+        if time.time() > item["expires_at"]:
+            del _in_memory_store[request_id]
+        else:
+            states.append(json.loads(item["payload"]))
+    return states
+
