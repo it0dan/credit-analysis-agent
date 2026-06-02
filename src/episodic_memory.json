@@ -710,6 +710,60 @@
       "approved_amount": 80000.0,
       "justification": "Análise de crédito aprovada. O solicitante possui score de crédito alto, renda confirmada e atende a todos os requisitos de compliance.",
       "timestamp": "2026-06-02T00:59:58Z"
+    },
+    {
+      "request_id": "dde9b9e8",
+      "status": "pending_human_review",
+      "decision": "pending",
+      "requested_amount": 80000.0,
+      "approved_amount": null,
+      "justification": "reason: threshold_exceeded",
+      "timestamp": "2026-06-02T01:01:59Z"
+    },
+    {
+      "request_id": "39df936b",
+      "status": "pending_human_review",
+      "decision": "pending",
+      "requested_amount": 10000.0,
+      "approved_amount": null,
+      "justification": "fallback_error devido à indisponibilidade de sub-agentes. Flags: bureau_unavailable.",
+      "timestamp": "2026-06-02T01:02:12Z"
+    },
+    {
+      "request_id": "d836cbd8",
+      "status": "rejected",
+      "decision": "rejected",
+      "requested_amount": 15000.0,
+      "approved_amount": 0,
+      "justification": "Compliance check failed: KYC and PLD not approved.",
+      "timestamp": "2026-06-02T01:02:15Z"
+    },
+    {
+      "request_id": "c186a3f0",
+      "status": "pending_human_review",
+      "decision": "pending",
+      "requested_amount": 80000.0,
+      "approved_amount": null,
+      "justification": "reason: threshold_exceeded",
+      "timestamp": "2026-06-02T01:02:17Z"
+    },
+    {
+      "request_id": "51d75773",
+      "status": "pending_human_review",
+      "decision": "pending",
+      "requested_amount": 10000.0,
+      "approved_amount": null,
+      "justification": "fallback_error devido à indisponibilidade de sub-agentes. Flags: bureau_unavailable, docs_unverified.",
+      "timestamp": "2026-06-02T01:02:19Z"
+    },
+    {
+      "request_id": "22748a27",
+      "status": "approved",
+      "decision": "approved",
+      "requested_amount": 20000.0,
+      "approved_amount": 20000.0,
+      "justification": "Score 780, renda R$8k confirmada, risco baixo, compliance ok.",
+      "timestamp": "2026-06-02T01:02:21Z"
     }
   ]
 }
