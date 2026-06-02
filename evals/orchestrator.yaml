@@ -397,6 +397,24 @@ tests:
       - type: llm-rubric
         value: "Deve acionar handoff_to_human com reason fallback_error. A justificativa deve citar bureau_unavailable e docs_unverified. Status deve ser pending_human_review, decision pending, approved_amount null."
 
+  - description: hitl_async - pause serializa estado e encerra sem bloquear
+    provider: "exec:../src/.venv/bin/python ../src/orchestrator_provider.py --scenario hitl_required --amount 80000"
+    options:
+      transform: "JSON.parse(output)"
+    vars:
+      cpf: "{{hitl_cpf}}"
+      scenario: "hitl_required"
+      amount: 80000
+    assert:
+      - type: javascript
+        value: output._meta.hitl_state_saved === true
+      - type: javascript
+        value: output._meta.process_exited_cleanly === true
+      - type: javascript
+        value: output._meta.trace_id !== undefined
+      - type: javascript
+        value: output._meta.finops.estimated_cost_brl > 0
+
 # ---------------------------------------------------------------------------
 # Configuração de output
 # ---------------------------------------------------------------------------

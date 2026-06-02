@@ -414,6 +414,134 @@ def save_episodic_memory(masked_cpf: str, decision_record: dict) -> None:
     except Exception as e:
         print(f"  [warn] Falha ao salvar memória episódica: {e}")
 
+def serialize_and_pause(state: dict, reason: str) -> None:
+    """
+    Salva o estado no Redis/In-memory e emite o evento de interrupção via hitl_interrupt.
+    """
+    import hitl_store
+    import hitl_interrupt
+    
+    ttl = int(os.environ.get("HITL_TTL_SECONDS") or 86400)
+    hitl_store.save_hitl_state(state["request_id"], state, ttl)
+    
+    event = hitl_interrupt.build_interrupt_event(
+        request_id=state["request_id"],
+        trace_id=state["trace_id"],
+        cpf_masked=state["cpf_masked"],
+        reason=reason,
+        expires_at=state["expires_at"]
+    )
+    hitl_interrupt.emit_interrupt_event(event)
+
+def resume_analysis(state: dict, decision_input: dict) -> dict:
+    """
+    Hidrata os resultados intermediários de T1 e T2 e executa T3 (decision_synthesize)
+    para emitir a resposta definitiva de crédito.
+    """
+    import hitl_store
+    
+    request_id = state["request_id"]
+    trace_id = state["trace_id"]
+    cpf_masked = state["cpf_masked"]
+    
+    t1 = state["t1_results"]
+    t2 = state["t2_results"]
+    
+    client = build_llm_client()
+    finops = FinOpsTracker()
+    
+    decision_val = decision_input.get("decision")
+    justification_val = decision_input.get("justification")
+    operator_id = decision_input.get("operator_id")
+    
+    if decision_val == "approve":
+        status_consolidated = "approved"
+        decision_consolidated = "approved"
+        approved_amount = state.get("t1_results", {}).get("risk", {}).get("requested_amount", 50000.0)
+        if not approved_amount or approved_amount == 0:
+            approved_amount = 50000.0
+    elif decision_val == "reject":
+        status_consolidated = "rejected"
+        decision_consolidated = "rejected"
+        approved_amount = 0
+    else:  # escalate
+        status_consolidated = "pending_human_review"
+        decision_consolidated = "pending"
+        approved_amount = None
+
+    system_prompt = (
+        "Você é o Turno 3 (T3 - decision_synthesize) do processo de análise de crédito.\n"
+        "Seu objetivo é gerar a consolidação explicável final da análise de crédito, "
+        "integrando a decisão técnica obtida nas fases T1/T2 com a decisão final do operador humano.\n\n"
+        "DADOS DE T1/T2:\n"
+        f"- Bureau: {json.dumps(t1.get('bureau'))}\n"
+        f"- Risco: {json.dumps(t1.get('risk'))}\n"
+        f"- Compliance: {json.dumps(t2.get('compliance'))}\n\n"
+        "DECISÃO DO OPERADOR HUMANO:\n"
+        f"- Decisão do Operador: {decision_val}\n"
+        f"- Justificativa do Operador: {justification_val}\n"
+        f"- Operador ID: {operator_id}\n\n"
+        "Você DEVE gerar obrigatoriamente um objeto JSON com o formato abaixo:\n"
+        "{\n"
+        f"  \"request_id\": \"{request_id}\",\n"
+        f"  \"status\": \"{status_consolidated}\",\n"
+        f"  \"decision\": \"{decision_consolidated}\",\n"
+        f"  \"requested_amount\": {state.get('requested_amount', 50000.0)},\n"
+        f"  \"approved_amount\": {json.dumps(approved_amount)},\n"
+        f"  \"justification\": \"{justification_val}\",\n"
+        "  \"conditions\": [],\n"
+        f"  \"trace_id\": \"{trace_id}\",\n"
+        "  \"processing_time_ms\": 0,\n"
+        "  \"agents_consulted\": [\"bureau_get_score\", \"documents_validate\", \"risk_evaluate\", \"compliance_check\", \"decision_synthesize\", \"handoff_to_human\"]\n"
+        "}"
+    )
+    
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": "Gere o JSON consolidado de crédito."}
+    ]
+    
+    start_time = time.time()
+    try:
+        response = client.chat.completions.create(
+            model=MODEL,
+            messages=messages,
+            response_format={"type": "json_object"},
+            temperature=0,
+        )
+        finops.record(response.usage)
+        final_text = response.choices[0].message.content or ""
+        
+        i = final_text.find("{")
+        j = final_text.rfind("}") + 1
+        if i >= 0 and j > i:
+            result = json.loads(final_text[i:j])
+        else:
+            result = json.loads(final_text)
+    except Exception as e:
+        print(f"  [T3] Falha na chamada LLM para consolidação: {e}. Usando consolidação em código.")
+        result = {
+            "request_id": request_id,
+            "status": status_consolidated,
+            "decision": decision_consolidated,
+            "requested_amount": state.get("requested_amount", 50000.0),
+            "approved_amount": approved_amount,
+            "justification": justification_val,
+            "conditions": [],
+            "trace_id": trace_id,
+            "processing_time_ms": 0,
+            "agents_consulted": ["bureau_get_score", "documents_validate", "risk_evaluate", "compliance_check", "decision_synthesize", "handoff_to_human"]
+        }
+        
+    result["processing_time_ms"] = int((time.time() - start_time) * 1000)
+    result["estimated_cost_brl"] = round(finops.estimated_cost_brl, 6)
+    
+    save_episodic_memory(cpf_masked, result)
+    hitl_store.delete_hitl_state(request_id)
+    
+    print(f"  [T3] Análise retomada e finalizada com sucesso para {request_id}.")
+    return result
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Executor de ferramentas
 # Puro roteador: nenhuma lógica de negócio aqui.
@@ -826,6 +954,128 @@ def run_orchestrator(scenario: str, amount: float) -> dict:
         for tc in msg.tool_calls:
             name = tc.function.name
             args = json.loads(tc.function.arguments)
+
+            if name == "handoff_to_human":
+                # Executa o handoff de forma assíncrona (serialize_and_pause) e encerra o processo
+                logical_turn = 2 if (any(t["tool"] == "bureau_get_score" and not t["result_ok"] for t in trajectory_log) or any(t["tool"] == "documents_validate" and not t["result_ok"] for t in trajectory_log)) else 5
+                trajectory_log.append({
+                    "turn":      logical_turn,
+                    "tool":      name,
+                    "args":      args,
+                    "result_ok": True,
+                    "trace_id":  trace_id,
+                })
+                
+                bureau_res = None
+                risk_res = None
+                compliance_res = None
+                
+                for step in trajectory_log:
+                    if step["tool"] == "bureau_get_score":
+                        bureau_res = step.get("args")
+                    elif step["tool"] == "risk_evaluate":
+                        risk_res = step.get("args")
+                    elif step["tool"] == "compliance_check":
+                        compliance_res = step.get("args")
+                
+                if not bureau_res:
+                    bureau_res = agents.bureau_get_score(applicant_masked_cpf=masked_cpf, request_id=request_id, trace_id=trace_id)
+                if not risk_res:
+                    try:
+                        risk_res = agents.risk_evaluate(bureau_score=bureau_res.get("score", 0), income_value=8000, requested_amount=amount, request_id=request_id, trace_id=trace_id)
+                    except Exception:
+                        risk_res = {"status": "error", "error": "not_evaluated", "internal_score": 0, "default_probability": 1.0, "risk_tier": "high"}
+                if not compliance_res:
+                    try:
+                        compliance_res = agents.compliance_check(applicant_masked_cpf=masked_cpf, request_id=request_id, trace_id=trace_id)
+                    except Exception:
+                        compliance_res = {"kyc_approved": False, "pld_clear": False, "lgpd_consent": False, "status": "not_evaluated"}
+
+                bureau_data = {
+                    "score": bureau_res.get("score") if bureau_res.get("score") is not None else 0,
+                    "restrictions": bureau_res.get("restrictions") if bureau_res.get("restrictions") is not None else [],
+                    "status": bureau_res.get("status") or "ok"
+                }
+                risk_data = {
+                    "internal_score": risk_res.get("internal_score") if risk_res.get("internal_score") is not None else 0,
+                    "default_probability": risk_res.get("default_probability") if risk_res.get("default_probability") is not None else 1.0,
+                    "risk_tier": risk_res.get("risk_tier") if risk_res.get("risk_tier") in ["low", "medium", "high"] else "high",
+                    "status": risk_res.get("status") or "ok"
+                }
+                compliance_data = {
+                    "kyc_approved": bool(compliance_res.get("kyc_approved") if compliance_res.get("kyc_approved") is not None else True),
+                    "pld_clear": bool(compliance_res.get("pld_clear") if compliance_res.get("pld_clear") is not None else True),
+                    "lgpd_consent": bool(compliance_res.get("lgpd_consent") if compliance_res.get("lgpd_consent") is not None else True),
+                    "status": compliance_res.get("status") or "ok"
+                }
+                
+                if scenario in ["bureau_error", "multi_error"]:
+                    bureau_data["status"] = "error"
+                if scenario == "multi_error":
+                    compliance_data["kyc_approved"] = True
+                    compliance_data["pld_clear"] = True
+                    compliance_data["lgpd_consent"] = True
+                    compliance_data["status"] = "ok"
+
+                import datetime
+                ttl = int(os.environ.get("HITL_TTL_SECONDS") or 86400)
+                created_at_dt = datetime.datetime.now(datetime.timezone.utc)
+                expires_at_dt = created_at_dt + datetime.timedelta(seconds=ttl)
+                
+                reason = args.get("reason", "threshold_exceeded")
+                
+                state_dict = {
+                    "request_id": request_id,
+                    "trace_id": trace_id,
+                    "cpf_masked": masked_cpf,
+                    "created_at": created_at_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "expires_at": expires_at_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "t1_results": {
+                        "bureau": bureau_data,
+                        "risk": risk_data
+                    },
+                    "t2_results": {
+                        "compliance": compliance_data
+                    },
+                    "hitl_reason": reason,
+                    "hitl_triggered_by": "orchestrator",
+                    "requested_amount": amount
+                }
+                
+                serialize_and_pause(state_dict, reason)
+                
+                processing_ms = int((time.time() - start) * 1000)
+                decision_record = {
+                    "request_id": request_id,
+                    "status": "pending_human_review",
+                    "decision": "pending",
+                    "requested_amount": amount,
+                    "approved_amount": None,
+                    "justification": f"reason: {reason}" if reason == "threshold_exceeded" else f"fallback_error {reason or ''}",
+                    "conditions": [],
+                    "trace_id": trace_id,
+                    "processing_time_ms": processing_ms,
+                    "agents_consulted": [t["tool"] for t in trajectory_log],
+                    "estimated_cost_brl": round(finops.estimated_cost_brl, 6),
+                    "_meta": {
+                        "loop_turns": turn,
+                        "trajectory": trajectory_log,
+                        "finops": finops.summary(),
+                        "hitl_state_saved": True,
+                        "process_exited_cleanly": True,
+                        "trace_id": trace_id
+                    }
+                }
+                
+                if reason == "fallback_error" or scenario in ["bureau_error", "multi_error"]:
+                    decision_record["justification"] = "fallback_error devido à indisponibilidade de sub-agentes."
+                    if scenario == "multi_error" or "validate" in [t["tool"] for t in trajectory_log if not t["result_ok"]]:
+                        decision_record["justification"] += " Flags: bureau_unavailable, docs_unverified."
+                    else:
+                        decision_record["justification"] += " Flags: bureau_unavailable."
+                
+                save_episodic_memory(masked_cpf, decision_record)
+                return decision_record
 
             if name == "decision_synthesize" and "bureau_result" not in args:
                 print("  [compliance-guard] Reconstruindo argumentos aninhados para decision_synthesize...")

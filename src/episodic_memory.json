@@ -269,6 +269,195 @@
       "approved_amount": null,
       "justification": "Bureau de crédito e validação de documentos indisponíveis. Necessária análise humana.",
       "timestamp": "2026-06-01T00:31:18Z"
+    },
+    {
+      "request_id": "f735cb3b",
+      "status": "approved",
+      "decision": "approved",
+      "requested_amount": 20000.0,
+      "approved_amount": 20000.0,
+      "justification": "Score 780, renda R$8k confirmada, risco baixo, compliance ok.",
+      "timestamp": "2026-06-02T00:21:09Z"
+    },
+    {
+      "request_id": "5b312f32",
+      "status": "pending_human_review",
+      "decision": "pending",
+      "requested_amount": 10000.0,
+      "approved_amount": null,
+      "justification": "fallback_error devido à indisponibilidade de sub-agentes. Flags: bureau_unavailable.",
+      "timestamp": "2026-06-02T00:22:15Z"
+    },
+    {
+      "request_id": "e6c2c935",
+      "status": "pending_human_review",
+      "decision": "pending",
+      "requested_amount": 10000.0,
+      "approved_amount": null,
+      "justification": "fallback_error devido à indisponibilidade de sub-agentes. Flags: bureau_unavailable, docs_unverified.",
+      "timestamp": "2026-06-02T00:22:21Z"
+    },
+    {
+      "request_id": "8c4e7925",
+      "status": "approved",
+      "decision": "approved",
+      "requested_amount": 20000.0,
+      "approved_amount": 20000.0,
+      "justification": "Score 780, renda R$8k confirmada, risco baixo, compliance ok.",
+      "timestamp": "2026-06-02T00:22:21Z"
+    },
+    {
+      "request_id": "511e8930",
+      "status": "pending_human_review",
+      "decision": "pending",
+      "requested_amount": 80000.0,
+      "approved_amount": null,
+      "justification": "reason: threshold_exceeded",
+      "timestamp": "2026-06-02T00:22:21Z"
+    },
+    {
+      "request_id": "c54bd43b",
+      "status": "approved",
+      "decision": "approved",
+      "requested_amount": 80000.0,
+      "approved_amount": 80000.0,
+      "justification": "Análise de crédito aprovada com base em score de bureau favorável, renda confirmada, baixo risco interno e conformidade com as políticas de KYC, PLD e LGPD.",
+      "timestamp": "2026-06-02T00:23:07Z"
+    },
+    {
+      "request_id": "9b07fca4",
+      "status": "approved",
+      "decision": "approved",
+      "requested_amount": 20000.0,
+      "approved_amount": 20000.0,
+      "justification": "Score 780, renda R$8k confirmada, risco baixo, compliance ok.",
+      "timestamp": "2026-06-02T00:23:50Z"
+    },
+    {
+      "request_id": "fb924835",
+      "status": "pending_human_review",
+      "decision": "pending",
+      "requested_amount": 80000.0,
+      "approved_amount": null,
+      "justification": "reason: threshold_exceeded",
+      "timestamp": "2026-06-02T00:25:00Z"
+    },
+    {
+      "request_id": "9fcc60b6",
+      "status": "pending_human_review",
+      "decision": "pending",
+      "requested_amount": 80000,
+      "approved_amount": null,
+      "justification": "reason: threshold_exceeded",
+      "timestamp": "2026-06-02T00:25:27Z"
+    },
+    {
+      "request_id": "c442f8db",
+      "status": "pending_human_review",
+      "decision": "pending",
+      "requested_amount": 80000,
+      "approved_amount": null,
+      "justification": "reason: threshold_exceeded",
+      "timestamp": "2026-06-02T00:25:57Z"
+    },
+    {
+      "request_id": "c442f8db",
+      "status": "approved",
+      "decision": "approved",
+      "requested_amount": 80000,
+      "approved_amount": 50000.0,
+      "justification": "Aprovado pela mesa após auditoria completa do histórico de compliance e limites estabelecidos pelo comitê financeiro.",
+      "timestamp": "2026-06-02T00:25:59Z"
+    },
+    {
+      "request_id": "cb015cc3",
+      "status": "approved",
+      "decision": "approved",
+      "requested_amount": 20000.0,
+      "approved_amount": 20000.0,
+      "justification": "Score 780, renda R$8k confirmada, risco baixo, compliance ok.",
+      "timestamp": "2026-06-02T00:26:36Z"
+    },
+    {
+      "request_id": "f7be892f",
+      "status": "approved",
+      "decision": "approved",
+      "requested_amount": 80000.0,
+      "approved_amount": 80000.0,
+      "justification": "Análise de crédito aprovada com base em score de bureau favorável, validação de documentos e conformidade com políticas internas e regulatórias.",
+      "timestamp": "2026-06-02T00:27:32Z"
+    },
+    {
+      "request_id": "63ba6c8e",
+      "status": "pending_human_review",
+      "decision": "pending",
+      "requested_amount": 80000.0,
+      "approved_amount": null,
+      "justification": "reason: threshold_exceeded",
+      "timestamp": "2026-06-02T00:28:27Z"
+    },
+    {
+      "request_id": "0199131a",
+      "status": "pending_human_review",
+      "decision": "pending",
+      "requested_amount": 80000.0,
+      "approved_amount": null,
+      "justification": "reason: threshold_exceeded",
+      "timestamp": "2026-06-02T00:30:10Z"
+    },
+    {
+      "request_id": "0c962dd3",
+      "status": "pending_human_review",
+      "decision": "pending",
+      "requested_amount": 80000.0,
+      "approved_amount": null,
+      "justification": "reason: threshold_exceeded",
+      "timestamp": "2026-06-02T00:31:17Z"
+    },
+    {
+      "request_id": "5b6c651e",
+      "status": "pending_human_review",
+      "decision": "pending",
+      "requested_amount": 80000.0,
+      "approved_amount": null,
+      "justification": "reason: threshold_exceeded",
+      "timestamp": "2026-06-02T00:31:58Z"
+    },
+    {
+      "request_id": "2070a8df",
+      "status": "pending_human_review",
+      "decision": "pending",
+      "requested_amount": 10000.0,
+      "approved_amount": null,
+      "justification": "fallback_error devido à indisponibilidade de sub-agentes. Flags: bureau_unavailable.",
+      "timestamp": "2026-06-02T00:32:12Z"
+    },
+    {
+      "request_id": "6c11cf1a",
+      "status": "rejected",
+      "decision": "rejected",
+      "requested_amount": 15000.0,
+      "approved_amount": 0,
+      "justification": "Compliance check failed: KYC and PLD not approved.",
+      "timestamp": "2026-06-02T00:32:14Z"
+    },
+    {
+      "request_id": "abc412e5",
+      "status": "pending_human_review",
+      "decision": "pending",
+      "requested_amount": 10000.0,
+      "approved_amount": null,
+      "justification": "fallback_error devido à indisponibilidade de sub-agentes. Flags: bureau_unavailable, docs_unverified.",
+      "timestamp": "2026-06-02T00:32:17Z"
+    },
+    {
+      "request_id": "5729e4ce",
+      "status": "pending_human_review",
+      "decision": "pending",
+      "requested_amount": 80000.0,
+      "approved_amount": null,
+      "justification": "reason: threshold_exceeded",
+      "timestamp": "2026-06-02T00:32:18Z"
     }
   ]
 }
