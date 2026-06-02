@@ -602,6 +602,114 @@
       "approved_amount": 20000.0,
       "justification": "Score 780, renda R$8k confirmada, risco baixo, compliance ok.",
       "timestamp": "2026-06-02T00:51:52Z"
+    },
+    {
+      "request_id": "6462cab8",
+      "status": "pending_human_review",
+      "decision": "pending",
+      "requested_amount": 80000.0,
+      "approved_amount": null,
+      "justification": "O valor solicitado excede o limite de R$ 50.000,00, exigindo revisão humana conforme Regra 4.",
+      "timestamp": "2026-06-02T00:56:51Z"
+    },
+    {
+      "request_id": "a686506d",
+      "status": "pending_human_review",
+      "decision": "pending",
+      "requested_amount": 10000.0,
+      "approved_amount": null,
+      "justification": "fallback_error devido à indisponibilidade de sub-agentes. Flags: bureau_unavailable.",
+      "timestamp": "2026-06-02T00:57:05Z"
+    },
+    {
+      "request_id": "32ce4e3d",
+      "status": "rejected",
+      "decision": "rejected",
+      "requested_amount": 15000.0,
+      "approved_amount": 0,
+      "justification": "Compliance check failed: KYC and PLD not approved.",
+      "timestamp": "2026-06-02T00:57:07Z"
+    },
+    {
+      "request_id": "47169ac3",
+      "status": "approved",
+      "decision": "approved",
+      "requested_amount": 20000.0,
+      "approved_amount": 20000.0,
+      "justification": "Score 780, renda R$8k confirmada, risco baixo, compliance ok.",
+      "timestamp": "2026-06-02T00:57:10Z"
+    },
+    {
+      "request_id": "4f76e8ea",
+      "status": "pending_human_review",
+      "decision": "pending",
+      "requested_amount": 10000.0,
+      "approved_amount": null,
+      "justification": "fallback_error devido à indisponibilidade de sub-agentes. Flags: bureau_unavailable, docs_unverified.",
+      "timestamp": "2026-06-02T00:57:11Z"
+    },
+    {
+      "request_id": "6315bffb",
+      "status": "pending_human_review",
+      "decision": "pending",
+      "requested_amount": 80000.0,
+      "approved_amount": null,
+      "justification": "reason: threshold_exceeded",
+      "timestamp": "2026-06-02T00:57:12Z"
+    },
+    {
+      "request_id": "91294730",
+      "status": "pending_human_review",
+      "decision": "pending",
+      "requested_amount": 80000.0,
+      "approved_amount": null,
+      "justification": "reason: threshold_exceeded",
+      "timestamp": "2026-06-02T00:59:32Z"
+    },
+    {
+      "request_id": "b6abe2d2",
+      "status": "pending_human_review",
+      "decision": "pending",
+      "requested_amount": 10000.0,
+      "approved_amount": null,
+      "justification": "fallback_error devido à indisponibilidade de sub-agentes. Flags: bureau_unavailable.",
+      "timestamp": "2026-06-02T00:59:46Z"
+    },
+    {
+      "request_id": "3ce285fe",
+      "status": "rejected",
+      "decision": "rejected",
+      "requested_amount": 15000.0,
+      "approved_amount": 0,
+      "justification": "Compliance check failed: KYC and PLD not approved.",
+      "timestamp": "2026-06-02T00:59:49Z"
+    },
+    {
+      "request_id": "d4226009",
+      "status": "approved",
+      "decision": "approved",
+      "requested_amount": 20000.0,
+      "approved_amount": 20000.0,
+      "justification": "Score 780, renda R$8k confirmada, risco baixo, compliance ok.",
+      "timestamp": "2026-06-02T00:59:51Z"
+    },
+    {
+      "request_id": "975f00cd",
+      "status": "pending_human_review",
+      "decision": "pending",
+      "requested_amount": 10000.0,
+      "approved_amount": null,
+      "justification": "fallback_error devido à indisponibilidade de sub-agentes. Flags: bureau_unavailable, docs_unverified.",
+      "timestamp": "2026-06-02T00:59:52Z"
+    },
+    {
+      "request_id": "476ba2f8",
+      "status": "approved",
+      "decision": "approved",
+      "requested_amount": 80000.0,
+      "approved_amount": 80000.0,
+      "justification": "Análise de crédito aprovada. O solicitante possui score de crédito alto, renda confirmada e atende a todos os requisitos de compliance.",
+      "timestamp": "2026-06-02T00:59:58Z"
     }
   ]
 }
