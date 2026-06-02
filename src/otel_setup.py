@@ -11,6 +11,8 @@ from opentelemetry.sdk.resources import Resource
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 from opentelemetry.propagate import set_global_textmap
 
+import sys
+
 # 1. Definindo atributos de recurso do serviço
 service_name = "credit-analysis-mas"
 service_version = os.environ.get("SERVICE_VERSION", "1.0.0")
@@ -31,11 +33,11 @@ if otlp_endpoint:
         exporter = OTLPSpanExporter(endpoint=otlp_endpoint)
         processor = BatchSpanProcessor(exporter)
         provider.add_span_processor(processor)
-        print(f"  [otel] OTLP Exporter habilitado apontando para {otlp_endpoint}.")
+        print(f"  [otel] OTLP Exporter habilitado apontando para {otlp_endpoint}.", file=sys.stderr)
     except Exception as e:
-        print(f"  [otel] Falha ao inicializar OTLP Exporter: {e}")
+        print(f"  [otel] Falha ao inicializar OTLP Exporter: {e}", file=sys.stderr)
 else:
-    print("  [otel] OTLP Exporter desabilitado (OTEL_EXPORTER_OTLP_ENDPOINT não definido).")
+    print("  [otel] OTLP Exporter desabilitado (OTEL_EXPORTER_OTLP_ENDPOINT não definido).", file=sys.stderr)
 
 trace.set_tracer_provider(provider)
 
