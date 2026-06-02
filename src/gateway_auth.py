@@ -31,6 +31,21 @@ class GatewayAuth:
         client_id = os.environ["AI_GATEWAY_CLIENT_ID"]
         client_secret = os.environ["AI_GATEWAY_CLIENT_SECRET"]
 
+        headers = {}
+        try:
+            from opentelemetry import trace
+            from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+            propagator = TraceContextTextMapPropagator()
+            propagator.inject(headers)
+            current_span = trace.get_current_span()
+            span_context = current_span.get_span_context() if current_span else None
+            if span_context and span_context.is_valid:
+                trace_id_hex = f"{span_context.trace_id:032x}"
+                trace_id_str = f"{trace_id_hex[:8]}-{trace_id_hex[8:12]}-{trace_id_hex[12:16]}-{trace_id_hex[16:20]}-{trace_id_hex[20:]}"
+                headers["X-Trace-Id"] = trace_id_str
+        except Exception:
+            pass
+
         resp = httpx.post(
             endpoint,
             data={
@@ -38,6 +53,7 @@ class GatewayAuth:
                 "client_id": client_id,
                 "client_secret": client_secret,
             },
+            headers=headers,
             timeout=10,
         )
         resp.raise_for_status()
