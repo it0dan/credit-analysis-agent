@@ -764,6 +764,33 @@
       "approved_amount": 20000.0,
       "justification": "Score 780, renda R$8k confirmada, risco baixo, compliance ok.",
       "timestamp": "2026-06-02T01:02:21Z"
+    },
+    {
+      "request_id": "c39f5d70",
+      "status": "rejected",
+      "decision": "rejected",
+      "requested_amount": 50000.0,
+      "approved_amount": 0,
+      "justification": "Compliance check failed: KYC and PLD were not approved.",
+      "timestamp": "2026-06-02T01:28:30Z"
+    },
+    {
+      "request_id": "acd2e490",
+      "status": "rejected",
+      "decision": "rejected",
+      "requested_amount": 50000.0,
+      "approved_amount": 0,
+      "justification": "Compliance check failed: KYC and PLD were not approved.",
+      "timestamp": "2026-06-02T01:28:31Z"
+    },
+    {
+      "request_id": "d64c5af8",
+      "status": "rejected",
+      "decision": "rejected",
+      "requested_amount": 30000.0,
+      "approved_amount": 0,
+      "justification": "Compliance check failed: KYC and PLD were not approved.",
+      "timestamp": "2026-06-02T01:29:22Z"
     }
   ]
 }
