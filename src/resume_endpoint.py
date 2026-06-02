@@ -62,8 +62,6 @@ class ResumeHTTPHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
-        self._send_cors_headers()
-
         # Route: GET /queue
         if self.path in ['/queue', '/analysis']:
             self.send_response(200)
@@ -161,8 +159,6 @@ class ResumeHTTPHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"Not Found")
 
     def do_POST(self):
-        self._send_cors_headers()
-
         # Route: POST /analysis (inicializar proposta)
         if self.path in ['/analysis', '/v1/analysis']:
             content_length = int(self.headers.get('Content-Length', 0))
