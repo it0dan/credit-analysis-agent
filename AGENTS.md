@@ -61,6 +61,7 @@ O histórico e evolução técnica das decisões de design do sistema estão reg
 * **ADR-004 (ACCEPTED):** Define e consolida o loop híbrido de execução por turnos e paralelização cognitiva (T1, T2 e T3).
 * **ADR-005 (ACCEPTED):** Padroniza as regras para versionamento, retrocompatibilidade e evolução de APIs de compliance.
 * **ADR-006 (ACCEPTED):** Define a adoção do OpenTelemetry SDK para rastreamento padronizado com propagação W3C (traceparent) mantendo retrocompatibilidade com X-Trace-Id.
+* **ADR-007 (ACCEPTED):** Define a adoção de autenticação inter-agente via tokens JWT com a claim de audiência (aud) específica por agente e caching local com validação de expiração.
 * **ADR-001 (SUPERSEDED):** Substituído integralmente pelas diretrizes consolidadas nas decisões arquiteturais posteriores.
 * **ADR-003 (REVISED):** Revisado detalhadamente em função das mudanças no pipeline do Gateway. Não deve ser considerado para novas implementações.
 
@@ -99,11 +100,33 @@ MCP_SERVER_CREDIT="credit-mcp-server"
 
 # Porta de Serviço Externa do Agente de Compliance (A2A)
 A2A_COMPLIANCE_PORT=8085
+
+# Mapeamento de audiências JWT para autenticação inter-agente (JSON string)
+AI_GATEWAY_JWT_AUDIENCE_MAP='{"bureau-agent":"https://api.sensedia.com/aud/bureau","documents-agent":"https://api.sensedia.com/aud/documents","risk-agent":"https://api.sensedia.com/aud/risk","compliance-agent":"https://api.sensedia.com/aud/compliance","decision-agent":"https://api.sensedia.com/aud/decision"}'
 ```
 
 ---
 
-## 10. Contexto de Sessão
+## 10. Identidade dos Agentes (A2A Auth)
+Para garantir o princípio do privilégio mínimo e o isolamento seguro nas comunicações Agent-to-Agent (A2A), o sistema implementa uma camada rigorosa de identidade e autenticação baseada em tokens JWT específicos por agente destino:
+
+1. **Geração Dinâmica de Tokens por Audiência (`aud`):**
+   - O orquestrador e os sub-agentes nunca compartilham um token genérico. Em vez disso, ao disparar uma chamada para um agente destino, o componente `gateway_auth.py` intercepta a chamada, pesquisa pelo identificador do agente e localiza a audiência específica correspondente.
+   - A requisição de geração de token de Client Credentials enviada ao Sensedia AI Gateway passa a incluir a chave `audience` no corpo da requisição HTTP POST. O gateway então emite um token cuja claim `aud` é vinculada especificamente àquele sub-agente.
+
+2. **Mapeamento de Audiências (`AI_GATEWAY_JWT_AUDIENCE_MAP`):**
+   - O vínculo entre a identidade lógica do agente (ex: `"bureau-agent"`) e sua URI de audiência no Gateway é definido dinamicamente pela variável de ambiente `AI_GATEWAY_JWT_AUDIENCE_MAP` em formato JSON.
+
+3. **Cache de Tokens Local e Gerenciamento de Expiração:**
+   - Para maximizar a performance e evitar chamadas excessivas ao servidor OAuth2 do Gateway, os tokens são armazenados localmente em um cache em memória.
+   - Antes de retornar um token em cache, o sistema decodifica o payload Base64 do JWT e avalia a claim de expiração (`exp`). O token em cache é reutilizado apenas se a validade atual for maior que a margem de segurança crítica de **30 segundos** antes do término oficial do token. Caso contrário, um novo token é requisitado automaticamente de forma transparente.
+
+4. **Resiliência e Fallback:**
+   - Caso a variável `AI_GATEWAY_JWT_AUDIENCE_MAP` não esteja definida ou não possua a mapeação para o agente destino, o sistema realiza um fallback automático e gracioso para gerar um token Client Credentials padrão (sem audience) emitindo um log do tipo `Warning`. Isso garante o funcionamento transparente da aplicação em ambientes locais, testes de integração simplificados ou cenários de desenvolvimento inicial.
+
+---
+
+## 11. Contexto de Sessão
 
 * **Ao iniciar:** Leia `.agent/handoff.md`. Se não estiver vazio, o conteúdo representa o estado exato de onde a última sessão parou — siga a partir daí.
 * **Ao encerrar:** Atualize `.agent/handoff.md` com:
