@@ -11,20 +11,28 @@ A versão **v2** introduz uma homologação completa da arquitetura-alvo com 100
 ```
 credit-analysis-agent/
 ├── README.md                          ← Documentação geral da arquitetura
+├── AGENTS.md                          ← Especificação dos agentes e invariantes críticos
+├── requirements.txt                   ← Dependências oficiais de OpenTelemetry
 ├── run_all_evals.sh                   ← Orquestrador global de testes/evals
-├── openspec/                          ← Contratos OpenAPI e esquemas de dados oficiais
+├── openspec/                          ← Contratos OpenAPI, ADRs e esquemas de dados oficiais
+│   └── adr/
+│       └── ADR-006.md                 ← ADR da migração para OpenTelemetry
 ├── evals/                             ← Evals de trajetórias de fluxo v2 (5 cenários)
 └── src/                               ← Implementação de referência do runtime
     ├── .env.example                   ← Variáveis de ambiente (copiar para .env)
-    ├── gateway_auth.py            ← Autenticação OAuth2 no Sensedia AI Gateway
+    ├── gateway_auth.py            ← Autenticação OAuth2 no Sensedia AI Gateway e injeção de traces
     ├── mock_agents.py             ← Provedor de ferramentas locais para simulações
     ├── bureau_agent.py            ← Contrato e esquemas de validação do AgentBureau
     ├── compliance_agent.py        ← Runtime do AgentCompliance (com servidor HTTP A2A)
     ├── risk_agent.py              ← Contrato e esquemas do AgentRisk
     ├── decision_agent.py          ← Contrato e esquemas do AgentDecision
     ├── episodic_memory.json       ← Repositório JSON persistente de memória episódica (LTM)
-    ├── orchestrator.py            ← Orquestrador principal com loop agêntico autoreparável
+    ├── orchestrator.py            ← Orquestrador principal com loop agêntico e suporte a spans OTel
     ├── orchestrator_provider.py   ← Provedor Promptfoo isolado para parsing determinístico de JSON
+    ├── otel_setup.py              ← Inicialização do OpenTelemetry SDK e propagador W3C
+    ├── hitl_store.py              ← Fila de persistência de estado do Redis com fallback em memória
+    ├── hitl_interrupt.py          ← Emissor de eventos de interrupção SSE (HITL_REQUIRED)
+    ├── resume_endpoint.py         ← Servidor HTTP A2A exposto na porta 8086 (/resume POST API)
     └── run_evals.sh               ← Script local de execução de evals clássicos
 ```
 
@@ -142,14 +150,41 @@ O script unificado na pasta raiz executa sequencialmente todos os testes, garant
 
 ---
 
+## ⛓️ Observabilidade & Tracing (OpenTelemetry)
+
+A arquitetura de observabilidade foi totalmente modernizada com a integração do **OpenTelemetry SDK**:
+* **Rastreamento Padronizado W3C**: Substituição do `X-Trace-Id` manual e ad-hoc pelo padrão global `traceparent` (W3C), garantindo interoperabilidade com proxies de mercado e APMs (Jaeger, Tempo, Datadog, Arize Phoenix). O `X-Trace-Id` continua sendo propagado em paralelo para manter retrocompatibilidade absoluta.
+* **Mapeamento de Spans Cognitivos**: 
+  * `analysis.t1`: Cobre a execução paralela de Bureau de Crédito e Validação de Documentos, estendendo-se até o cálculo final de Risco.
+  * `analysis.t2`: Cobre a execução isolada de Compliance.
+  * `analysis.t3`: Cobre a consolidação final da proposta de crédito e síntese explicável (Decision).
+* **Logging de Eventos de Ferramenta**: Cada chamada de sub-agente registra um evento OTel com o nome do agente, latência real de rede em milissegundos e resultado (`success`, `fail` ou `timeout`).
+* **Enriquecimento FinOps**: O `trace_id` W3C e o `span_id` da execução completa são formalmente expostos no objeto de saída de metadados em `_meta.finops`.
+
+---
+
+## ⏳ HITL Assíncrono (Human-in-the-Loop)
+
+Para sanar o débito técnico de bloqueio síncrono de threads, implementamos o **HITL Assíncrono baseado em eventos**:
+1. **Pausa Não-Bloqueante (`serialize_and_pause`)**: Quando o valor solicitado ultrapassa R$ 50k ou ocorrem múltiplos erros técnicos simultâneos, o orquestrador serializa o estado atual das fases T1 e T2 no Redis (com expiração governada por `HITL_TTL_SECONDS`), emite um evento SSE `HITL_REQUIRED` contendo o `traceparent` e o ID da requisição para a interface AG-UI e finaliza imediatamente o processo Python sem reter threads ou conexões de banco de dados.
+2. **Retomada Assíncrona (`POST /resume`)**: Disponibiliza um servidor HTTP A2A dedicado na porta `8086`. O endpoint `/resume`:
+   * Valida a autenticação do analista via Bearer Token OAuth2 de forma idêntica ao Gateway.
+   * Valida que o estado não expirou (retorna `410 Gone` se o TTL expirou).
+   * Implementa **idempotência de auditoria** contra chamadas concorrentes usando a memória episódica (retorna `409 Conflict` com o resultado anterior caso a análise já esteja em andamento ou resolvida).
+   * Dispara a execução do Turno 3 (T3 - `decision_synthesize`) de forma 100% assíncrona em uma thread em background e retorna imediatamente `202 Accepted` para o chamador.
+3. **Causal Link de Tracing**: No `resume_analysis`, a nova span de T3 reconstrói e cria um `trace.Link` apontando para o `SpanContext` original serializado, garantindo auditoria ponta a ponta e ligando as duas execuções desconectadas no tempo.
+
+---
+
 ## 📈 Tabela de Evolução da Arquitetura
 
 | Camada | Versão Anterior | Implementado na v2 (Atual) | Próximo Alvo (v3) |
 | :--- | :--- | :--- | :--- |
 | **Agentic Loop** | Sequenciamento fixo rígido em código Python | **Loop puro dirigido pelo LLM** com suporte a auto-reparação estrutural. | Loop puro com retry autônomo baseado em erros HTTP. |
 | **Trajectory Evals** | Inexistente (apenas asserts estáticos de string) | **Validação dinâmica via Promptfoo** (`trajectory.yaml`) garantindo a ordem das chamadas. | Integração de grafos de dependência complexos no Promptfoo. |
-| **Comunicação A2A** | Apenas funções locais mockadas em Python | **Servidor HTTP A2A Real** (`compliance_agent.py`) com propagação de headers de rastreamento. | Migração dos demais agentes (Bureau, Risco e Decisão) para microserviços HTTP. |
-| **FinOps** | Métrica de tokens ausente ou estática | **Cálculo exato em tempo real** baseado em metadados de resposta e conversão BRL com 6 decimais. | Consolidação dos custos em logs centralizados no OpenTelemetry. |
+| **Comunicação A2A** | Apenas funções locais mockadas em Python | **Servidor HTTP A2A Real** com propagação e injeção automática de traces W3C. | Migração dos demais agentes (Bureau, Risco e Decisão) para microserviços HTTP. |
+| **FinOps & Tracing** | Métrica de tokens ausente ou estática com trace ad-hoc | **Cálculo exato em tempo real** e **tracing distribuído com OpenTelemetry (W3C)**. | Consolidação centralizada de custos em coletores OpenTelemetry. |
+| **Intervenção Humana (HITL)** | Síncrona, bloqueante e com contenção de threads | **HITL assíncrono não-bloqueante** via Redis, `/resume` POST API, SSE e links de tracing. | Interface UI integrada nativamente com SSE real. |
 | **Memória LTM** | Sem persistência de histórico entre chamadas | **Event store estruturado (`episodic_memory.json`)** com ofuscação semântica de stop antecipado. | Uso de banco vetorial (Vector Store) integrado com cache do Sensedia Gateway. |
 | **Robustez de Ferramentas** | Quebrava em caso de respostas fora do padrão estruturado | **Simulador de Fallback de Código Python** e tradutor automático de assinaturas inválidas. | Middleware de validação sintática no próprio proxy do Sensedia Gateway. |
 
