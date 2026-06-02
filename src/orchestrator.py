@@ -632,9 +632,11 @@ def execute_tool(name: str, args: dict, agents: MockAgents, trace_id: str = None
             "trace_id": tr_id
         }
         
+        token = gateway_auth.get_agent_token("compliance-agent")
         headers = {
             "Content-Type": "application/json",
-            "X-Trace-Id": tr_id
+            "X-Trace-Id": tr_id,
+            "Authorization": f"Bearer {token}"
         }
         try:
             propagator = TraceContextTextMapPropagator()
