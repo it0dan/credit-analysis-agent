@@ -1,0 +1,110 @@
+# PromptFoo Eval Suite — Security
+# Rastreabilidade: openspec/changes/add-finops-security-evals/spec.md
+# Executar: npx promptfoo eval --config evals/security.yaml
+
+description: "Segurança — identidade de agente, AuthZ e isolamento de credenciais"
+
+providers:
+  - id: python:../src/orchestrator_provider.py
+
+tests:
+  # ─────────────────────────────────────────────────────────────────────────
+  # S1 — Agentes com audiences distintas recebem tokens distintos
+  # Nota: agents_tokens_used armazena token strings (não claims aud diretamente).
+  # Tokens distintos provam que audiences distintas geraram credenciais distintas.
+  # ─────────────────────────────────────────────────────────────────────────
+  - description: "[SECURITY-1] agentes com audiences distintas recebem tokens distintos"
+    vars:
+      cpf: "123.456.789-00"
+    assert:
+      - type: javascript
+        value: |
+          const out = typeof output === 'string' ? JSON.parse(output) : output;
+          const tokens = out._meta?.auth?.agents_tokens_used ?? {};
+          const agents = Object.keys(tokens);
+          if (agents.length < 2) throw new Error(`Esperado ≥2 agentes com tokens registrados, encontrado: ${agents.length} (${agents.join(', ')})`);
+          return true;
+      - type: javascript
+        value: |
+          const out = typeof output === 'string' ? JSON.parse(output) : output;
+          const tokens = out._meta?.auth?.agents_tokens_used ?? {};
+          const values = Object.values(tokens);
+          const unique = new Set(values);
+          if (unique.size < values.length) {
+            const agents = Object.keys(tokens);
+            throw new Error(`Agentes com audiences distintas devem ter tokens distintos. Únicos: ${unique.size} de ${values.length}. Agentes: ${agents.join(', ')}`);
+          }
+          return true;
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # S2 — Sem fallback quando AUDIENCE_MAP configurado
+  # ─────────────────────────────────────────────────────────────────────────
+  - description: "[SECURITY-2] used_fallback_token=false quando AUDIENCE_MAP configurado"
+    vars:
+      cpf: "123.456.789-00"
+    assert:
+      - type: javascript
+        value: |
+          const out = typeof output === 'string' ? JSON.parse(output) : output;
+          const fallback = out._meta?.auth?.used_fallback_token;
+          if (fallback !== false) throw new Error(`used_fallback_token deve ser false quando AUDIENCE_MAP configurado, recebido: ${fallback}`);
+          return true;
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # S3/S4 — Fallback gracioso quando AUDIENCE_MAP ausente (ADR-007)
+  # Simula ausência de AI_GATEWAY_JWT_AUDIENCE_MAP via env_override
+  # ─────────────────────────────────────────────────────────────────────────
+  - description: "[SECURITY-3] fallback gracioso — sem AUDIENCE_MAP não gera erro de runtime"
+    vars:
+      cpf: "123.456.789-00"
+      env_override: "no_audience_map"
+    assert:
+      - type: javascript
+        value: |
+          const out = typeof output === 'string' ? JSON.parse(output) : output;
+          if (out.status === 'error' || out.error) {
+            throw new Error(`Fallback sem AUDIENCE_MAP não deve gerar erro de runtime. Status: "${out.status}", erro: "${out.error}"`);
+          }
+          return true;
+      - type: javascript
+        value: |
+          const out = typeof output === 'string' ? JSON.parse(output) : output;
+          const fallback = out._meta?.auth?.used_fallback_token;
+          if (fallback !== true) throw new Error(`used_fallback_token deve ser true quando AUDIENCE_MAP ausente, recebido: ${fallback}`);
+          return true;
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # S5 — trace_id propagado em todas as tool calls da trajetória
+  # ─────────────────────────────────────────────────────────────────────────
+  - description: "[SECURITY-5] X-Trace-Id propagado em todas as tool calls da trajetória"
+    vars:
+      cpf: "123.456.789-00"
+    assert:
+      - type: javascript
+        value: |
+          const out = typeof output === 'string' ? JSON.parse(output) : output;
+          const trajectory = out._meta?.trajectory ?? [];
+          if (trajectory.length === 0) throw new Error("Trajetória vazia — esperado ≥1 tool call registrada");
+          const missing = trajectory.filter(t => typeof t.trace_id !== 'string' || t.trace_id.length === 0);
+          if (missing.length > 0) {
+            throw new Error(`trace_id ausente em ${missing.length} tool call(s): ${missing.map(t => t.tool).join(', ')}`);
+          }
+          return true;
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # S6 — CPF não aparece em claro no output (LGPD)
+  # Regex detecta formato completo: NNN.NNN.NNN-NN
+  # ─────────────────────────────────────────────────────────────────────────
+  - description: "[SECURITY-6] CPF não aparece em claro no output (conformidade LGPD)"
+    vars:
+      cpf: "123.456.789-00"
+    assert:
+      - type: javascript
+        value: |
+          const out = typeof output === 'string' ? JSON.parse(output) : output;
+          const serialized = JSON.stringify(out);
+          const cpfPattern = /\d{3}\.\d{3}\.\d{3}-\d{2}/;
+          if (cpfPattern.test(serialized)) {
+            throw new Error("CPF em claro encontrado no output — violação de conformidade LGPD");
+          }
+          return true;
