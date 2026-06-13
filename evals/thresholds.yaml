@@ -1,0 +1,11 @@
+# evals/thresholds.yaml
+# Thresholds de custo e tokens para os evals de FinOps.
+# Válido até: 2026-09-01 — revisar se preço do Gemini 2.5 Flash Lite mudar.
+# Preço base (estimativa jun/2026): input R$0.000030/token, output R$0.000040/token.
+
+thresholds:
+  auto_approve:    0.05   # R$ — cenário completo (4 turnos, todos os agentes)
+  compliance_fail: 0.02   # R$ — short-circuit no T1 (custo baixo esperado)
+  multi_error:     0.03   # R$ — fallback após T1/T2 parcial
+  default:         0.10   # R$ — fallback conservador para cenários não mapeados
+  total_tokens:    5000   # tokens por análise completa (input + output)
