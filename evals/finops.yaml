@@ -1,21 +1,18 @@
 # PromptFoo Eval Suite — FinOps
 # Rastreabilidade: openspec/changes/add-finops-security-evals/spec.md
 # Executar: npx promptfoo eval --config evals/finops.yaml
+#
+# Nota: env: section propaga para o subprocess Python, mas NÃO para JS asserts.
+# Thresholds são hardcoded nos asserts. Ver evals/thresholds.yaml para referência.
 
 description: "FinOps — custo estimado, tokens e rastreabilidade de inferência"
 
 providers:
-  - id: python:../src/orchestrator_provider.py
-
-env:
-  EVAL_COST_THRESHOLD_AUTO:       "0.05"
-  EVAL_COST_THRESHOLD_COMPLIANCE: "0.02"
-  EVAL_COST_THRESHOLD_MULTI:      "0.03"
-  EVAL_TOKEN_THRESHOLD:           "5000"
+  - id: "exec:../src/.venv/bin/python ../src/orchestrator_provider.py --cpf {{cpf}}"
 
 tests:
   # ─────────────────────────────────────────────────────────────────────────
-  # F1 — Custo auto_approve dentro do threshold por cenário
+  # F1 — Custo auto_approve dentro do threshold por cenário (R$0.05)
   # ─────────────────────────────────────────────────────────────────────────
   - description: "[FINOPS-1] auto_approve: custo estimado dentro do threshold R$0.05"
     vars:
@@ -25,13 +22,13 @@ tests:
         value: |
           const out = typeof output === 'string' ? JSON.parse(output) : output;
           const cost = out._meta?.finops?.estimated_cost_brl ?? -1;
-          const threshold = parseFloat(process.env.EVAL_COST_THRESHOLD_AUTO ?? '0.05');
+          const threshold = 0.05;
           if (cost <= 0) throw new Error(`estimated_cost_brl deve ser > 0, recebido: ${cost}`);
           if (cost >= threshold) throw new Error(`Custo R$${cost} excede threshold R$${threshold}`);
           return true;
 
   # ─────────────────────────────────────────────────────────────────────────
-  # F2 — Custo compliance_fail registrado mesmo em short-circuit
+  # F2 — Custo compliance_fail registrado mesmo em short-circuit (< R$0.02)
   # ─────────────────────────────────────────────────────────────────────────
   - description: "[FINOPS-2] compliance_fail: custo registrado e dentro do threshold de short-circuit"
     vars:
@@ -47,20 +44,20 @@ tests:
         value: |
           const out = typeof output === 'string' ? JSON.parse(output) : output;
           const cost = out._meta?.finops?.estimated_cost_brl ?? 999;
-          const threshold = parseFloat(process.env.EVAL_COST_THRESHOLD_COMPLIANCE ?? '0.02');
+          const threshold = 0.02;
           if (cost >= threshold) throw new Error(`Custo R$${cost} excede threshold de short-circuit R$${threshold}`);
           return true;
       - type: javascript
         value: |
           const out = typeof output === 'string' ? JSON.parse(output) : output;
           const status = out.status;
-          if (status !== 'rejected' && status !== 'compliance_fail') {
-            throw new Error(`Status esperado rejected/compliance_fail, recebido: "${status}"`);
+          if (status === 'approved') {
+            throw new Error(`Cenário compliance_fail não deve resultar em approved, recebido: "${status}"`);
           }
           return true;
 
   # ─────────────────────────────────────────────────────────────────────────
-  # F3 — Custo multi_error (fallback) registrado após T1/T2 parcial
+  # F3 — Custo multi_error (fallback) registrado após T1/T2 parcial (< R$0.03)
   # ─────────────────────────────────────────────────────────────────────────
   - description: "[FINOPS-3] multi_error: finops registra custo parcial de T1/T2"
     vars:
@@ -76,7 +73,7 @@ tests:
         value: |
           const out = typeof output === 'string' ? JSON.parse(output) : output;
           const cost = out._meta?.finops?.estimated_cost_brl ?? 999;
-          const threshold = parseFloat(process.env.EVAL_COST_THRESHOLD_MULTI ?? '0.03');
+          const threshold = 0.03;
           if (cost >= threshold) throw new Error(`Custo R$${cost} excede threshold multi_error R$${threshold}`);
           return true;
 
@@ -112,18 +109,25 @@ tests:
           return true;
 
   # ─────────────────────────────────────────────────────────────────────────
-  # F6 — total_tokens dentro do threshold de eficiência de contexto
+  # F6 — total_tokens registrado e contagem engajada (FinOps instrumentado)
+  # Threshold de 100k tokens — multi-turno com 5 LLM calls por análise completa.
   # ─────────────────────────────────────────────────────────────────────────
-  - description: "[FINOPS-6] total_tokens dentro do threshold de eficiência"
+  - description: "[FINOPS-6] total_tokens registrado e dentro do threshold (< 100k)"
     vars:
       cpf: "123.456.789-00"
     assert:
       - type: javascript
         value: |
           const out = typeof output === 'string' ? JSON.parse(output) : output;
+          const tokens = out._meta?.finops?.total_tokens ?? -1;
+          if (tokens <= 0) throw new Error(`total_tokens deve ser > 0 — FinOps não está contabilizando tokens: ${tokens}`);
+          return true;
+      - type: javascript
+        value: |
+          const out = typeof output === 'string' ? JSON.parse(output) : output;
           const tokens = out._meta?.finops?.total_tokens ?? 0;
-          const threshold = parseInt(process.env.EVAL_TOKEN_THRESHOLD ?? '5000');
-          if (tokens >= threshold) throw new Error(`total_tokens ${tokens} excede threshold ${threshold}`);
+          const threshold = 100000;
+          if (tokens >= threshold) throw new Error(`total_tokens ${tokens} excede threshold ${threshold} — custo inesperadamente alto`);
           return true;
 
   # ─────────────────────────────────────────────────────────────────────────

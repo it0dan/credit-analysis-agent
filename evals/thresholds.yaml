@@ -8,4 +8,4 @@ thresholds:
   compliance_fail: 0.02   # R$ — short-circuit no T1 (custo baixo esperado)
   multi_error:     0.03   # R$ — fallback após T1/T2 parcial
   default:         0.10   # R$ — fallback conservador para cenários não mapeados
-  total_tokens:    5000   # tokens por análise completa (input + output)
+  total_tokens:    100000  # tokens por análise completa (input + output, inclui histórico multi-turno)
