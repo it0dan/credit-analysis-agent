@@ -1,0 +1,154 @@
+# PromptFoo Eval Suite — FinOps
+# Rastreabilidade: openspec/changes/add-finops-security-evals/spec.md
+# Executar: npx promptfoo eval --config evals/finops.yaml
+
+description: "FinOps — custo estimado, tokens e rastreabilidade de inferência"
+
+providers:
+  - id: python:../src/orchestrator_provider.py
+
+env:
+  EVAL_COST_THRESHOLD_AUTO:       "0.05"
+  EVAL_COST_THRESHOLD_COMPLIANCE: "0.02"
+  EVAL_COST_THRESHOLD_MULTI:      "0.03"
+  EVAL_TOKEN_THRESHOLD:           "5000"
+
+tests:
+  # ─────────────────────────────────────────────────────────────────────────
+  # F1 — Custo auto_approve dentro do threshold por cenário
+  # ─────────────────────────────────────────────────────────────────────────
+  - description: "[FINOPS-1] auto_approve: custo estimado dentro do threshold R$0.05"
+    vars:
+      cpf: "123.456.789-00"
+    assert:
+      - type: javascript
+        value: |
+          const out = typeof output === 'string' ? JSON.parse(output) : output;
+          const cost = out._meta?.finops?.estimated_cost_brl ?? -1;
+          const threshold = parseFloat(process.env.EVAL_COST_THRESHOLD_AUTO ?? '0.05');
+          if (cost <= 0) throw new Error(`estimated_cost_brl deve ser > 0, recebido: ${cost}`);
+          if (cost >= threshold) throw new Error(`Custo R$${cost} excede threshold R$${threshold}`);
+          return true;
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # F2 — Custo compliance_fail registrado mesmo em short-circuit
+  # ─────────────────────────────────────────────────────────────────────────
+  - description: "[FINOPS-2] compliance_fail: custo registrado e dentro do threshold de short-circuit"
+    vars:
+      cpf: "111.000.000-99"
+    assert:
+      - type: javascript
+        value: |
+          const out = typeof output === 'string' ? JSON.parse(output) : output;
+          const cost = out._meta?.finops?.estimated_cost_brl ?? -1;
+          if (cost <= 0) throw new Error(`Custo deve ser > 0 mesmo em short-circuit, recebido: ${cost}`);
+          return true;
+      - type: javascript
+        value: |
+          const out = typeof output === 'string' ? JSON.parse(output) : output;
+          const cost = out._meta?.finops?.estimated_cost_brl ?? 999;
+          const threshold = parseFloat(process.env.EVAL_COST_THRESHOLD_COMPLIANCE ?? '0.02');
+          if (cost >= threshold) throw new Error(`Custo R$${cost} excede threshold de short-circuit R$${threshold}`);
+          return true;
+      - type: javascript
+        value: |
+          const out = typeof output === 'string' ? JSON.parse(output) : output;
+          const status = out.status;
+          if (status !== 'rejected' && status !== 'compliance_fail') {
+            throw new Error(`Status esperado rejected/compliance_fail, recebido: "${status}"`);
+          }
+          return true;
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # F3 — Custo multi_error (fallback) registrado após T1/T2 parcial
+  # ─────────────────────────────────────────────────────────────────────────
+  - description: "[FINOPS-3] multi_error: finops registra custo parcial de T1/T2"
+    vars:
+      cpf: "multi_error_cpf_000"
+    assert:
+      - type: javascript
+        value: |
+          const out = typeof output === 'string' ? JSON.parse(output) : output;
+          const cost = out._meta?.finops?.estimated_cost_brl ?? -1;
+          if (cost < 0) throw new Error(`estimated_cost_brl ausente ou negativo: ${cost}`);
+          return true;
+      - type: javascript
+        value: |
+          const out = typeof output === 'string' ? JSON.parse(output) : output;
+          const cost = out._meta?.finops?.estimated_cost_brl ?? 999;
+          const threshold = parseFloat(process.env.EVAL_COST_THRESHOLD_MULTI ?? '0.03');
+          if (cost >= threshold) throw new Error(`Custo R$${cost} excede threshold multi_error R$${threshold}`);
+          return true;
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # F4 — trace_id no formato W3C traceparent (OpenTelemetry)
+  # ─────────────────────────────────────────────────────────────────────────
+  - description: "[FINOPS-4] trace_id W3C traceparent presente em _meta.finops"
+    vars:
+      cpf: "123.456.789-00"
+    assert:
+      - type: javascript
+        value: |
+          const out = typeof output === 'string' ? JSON.parse(output) : output;
+          const traceId = out._meta?.finops?.trace_id ?? '';
+          const w3c = /^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/;
+          if (!w3c.test(traceId)) throw new Error(`trace_id não segue padrão W3C traceparent: "${traceId}"`);
+          return true;
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # F5 — span_id presente e não vazio
+  # ─────────────────────────────────────────────────────────────────────────
+  - description: "[FINOPS-5] span_id presente — OpenTelemetry instrumentado"
+    vars:
+      cpf: "123.456.789-00"
+    assert:
+      - type: javascript
+        value: |
+          const out = typeof output === 'string' ? JSON.parse(output) : output;
+          const spanId = out._meta?.finops?.span_id ?? '';
+          if (typeof spanId !== 'string' || spanId.length === 0) {
+            throw new Error(`span_id ausente ou vazio: "${spanId}"`);
+          }
+          return true;
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # F6 — total_tokens dentro do threshold de eficiência de contexto
+  # ─────────────────────────────────────────────────────────────────────────
+  - description: "[FINOPS-6] total_tokens dentro do threshold de eficiência"
+    vars:
+      cpf: "123.456.789-00"
+    assert:
+      - type: javascript
+        value: |
+          const out = typeof output === 'string' ? JSON.parse(output) : output;
+          const tokens = out._meta?.finops?.total_tokens ?? 0;
+          const threshold = parseInt(process.env.EVAL_TOKEN_THRESHOLD ?? '5000');
+          if (tokens >= threshold) throw new Error(`total_tokens ${tokens} excede threshold ${threshold}`);
+          return true;
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # F7 — custo sempre > 0 no fluxo feliz
+  # ─────────────────────────────────────────────────────────────────────────
+  - description: "[FINOPS-7] custo > 0 no fluxo feliz — FinOps não zerado"
+    vars:
+      cpf: "123.456.789-00"
+    assert:
+      - type: javascript
+        value: |
+          const out = typeof output === 'string' ? JSON.parse(output) : output;
+          const cost = out._meta?.finops?.estimated_cost_brl ?? 0;
+          if (cost <= 0) throw new Error(`estimated_cost_brl deve ser > 0, recebido: ${cost}`);
+          return true;
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # F8 — status correto no fluxo feliz
+  # ─────────────────────────────────────────────────────────────────────────
+  - description: "[FINOPS-8] auto_approve: status approved no fluxo feliz"
+    vars:
+      cpf: "123.456.789-00"
+    assert:
+      - type: javascript
+        value: |
+          const out = typeof output === 'string' ? JSON.parse(output) : output;
+          if (out.status !== 'approved') throw new Error(`Status esperado "approved", recebido: "${out.status}"`);
+          return true;
