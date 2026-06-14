@@ -24,7 +24,7 @@ Estas diretrizes arquiteturais representam restrições técnicas inegociáveis.
 
 * **Zero Direct Calls (Comunicação via Gateway):** Absolutamente nenhum agente ou serviço interno tem permissão para realizar chamadas diretas a outro agente. Toda comunicação do ecossistema transita obrigatoriamente através do Sensedia AI Gateway, autenticada por fluxos robustos de **OAuth2** com a inclusão do cabeçalho de rastreamento padronizado W3C `traceparent` (OpenTelemetry) e com o cabeçalho adicional `X-Trace-Id` como fallback ativo de retrocompatibilidade.
 * **Natureza Externa do Compliance Agent:** O `compliance-agent` é classificado formalmente como um agente A2A (Agent-to-Agent) externo. Ele não deve ser projetado, modelado ou integrado como se fosse um microsserviço padrão ou biblioteca interna da aplicação credit-analysis-agent.
-* **HITL Assíncrono e Não-Bloqueante:** O fluxo de intervenção humana (HITL) é estritamente assíncrono e não-bloqueante. Quando a revisão humana é acionada, o estado da análise (T1 e T2) é serializado no Redis/memória com TTL de expiração controlado por `HITL_TTL_SECONDS` (default: 86400s), um evento SSE `HITL_REQUIRED` é disparado para a interface AG-UI e o processo Python encerra imediatamente (liberando a thread). A retomada ocorre via endpoint seguro `POST /resume` que autentica o operador e executa assincronamente a consolidação em T3.
+* **HITL Assíncrono e Não-Bloqueante:** O fluxo de intervenção humana (HITL) é estritamente assíncrono e não-bloqueante. Quando a revisão humana é acionada, o estado da análise (T1 e T2) é serializado em Redis, SQLite local e memória de processo com TTL de expiração controlado por `HITL_TTL_SECONDS` (default: 86400s), um evento SSE `HITL_REQUIRED` é disparado para a interface AG-UI e o processo Python encerra imediatamente (liberando a thread). A retomada ocorre via endpoint seguro `POST /resume` que autentica o operador e executa assincronamente a consolidação em T3.
 * **Rigidez e Governança do Orquestrador:** O arquivo `src/orchestrator.py` é o núcleo motor do sistema. Qualquer alteração estrutural, comportamental ou de ordem lógica neste componente requer obrigatoriamente a aprovação e submissão formal de um **ADR (Architecture Decision Record)** antes de sua implementação prática no repositório.
 
 ---
@@ -62,6 +62,7 @@ O histórico e evolução técnica das decisões de design do sistema estão reg
 * **ADR-005 (ACCEPTED):** Padroniza as regras para versionamento, retrocompatibilidade e evolução de APIs de compliance.
 * **ADR-006 (ACCEPTED):** Define a adoção do OpenTelemetry SDK para rastreamento padronizado com propagação W3C (traceparent) mantendo retrocompatibilidade com X-Trace-Id.
 * **ADR-007 (ACCEPTED):** Define a adoção de autenticação inter-agente via tokens JWT com a claim de audiência (aud) específica por agente e caching local com validação de expiração.
+* **ADR-009 (ACCEPTED):** Define SQLite (`src/credit_analysis.db`) como store durável local para análises e estados HITL, com seed idempotente de `episodic_memory.json`.
 * **ADR-001 (SUPERSEDED):** Substituído integralmente pelas diretrizes consolidadas nas decisões arquiteturais posteriores.
 * **ADR-003 (REVISED):** Revisado detalhadamente em função das mudanças no pipeline do Gateway. Não deve ser considerado para novas implementações.
 
@@ -87,10 +88,7 @@ npx promptfoo eval --config evals/security.yaml
 
 ### Suite completa
 ```bash
-npx promptfoo eval --config evals/orchestrator.yaml \
-                   --config evals/trajectory.yaml \
-                   --config evals/finops.yaml \
-                   --config evals/security.yaml
+./run_all_evals.sh
 ```
 
 ### Variáveis de threshold (FinOps)

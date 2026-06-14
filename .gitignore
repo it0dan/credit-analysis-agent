@@ -35,3 +35,6 @@ inspect_sequential.py
 # overrides pessoais de contexto de agente
 CLAUDE.local.md
 .agents.local.md
+# SQLite local persistence
+src/credit_analysis.db
+src/credit_analysis.db-*

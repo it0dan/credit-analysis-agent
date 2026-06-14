@@ -40,6 +40,10 @@ from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
+import db
+
+db.init_db()
+
 from openai import OpenAI
 
 from gateway_auth import gateway_auth
@@ -393,11 +397,14 @@ def save_episodic_memory(masked_cpf: str, decision_record: dict) -> None:
     # Grava registro compacto de auditoria e memória de longo prazo
     record = {
         "request_id": decision_record.get("request_id"),
+        "cpf_masked": masked_cpf,
         "status": decision_record.get("status"),
         "decision": decision_record.get("decision"),
         "requested_amount": decision_record.get("requested_amount"),
         "approved_amount": decision_record.get("approved_amount"),
         "justification": decision_record.get("justification"),
+        "trace_id": decision_record.get("trace_id"),
+        "finops_cost_brl": decision_record.get("estimated_cost_brl") or (decision_record.get("_meta") or {}).get("finops", {}).get("estimated_cost_brl"),
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
     data[masked_cpf].append(record)
@@ -407,6 +414,11 @@ def save_episodic_memory(masked_cpf: str, decision_record: dict) -> None:
             json.dump(data, f, indent=2, ensure_ascii=False)
     except Exception as e:
         print(f"  [warn] Falha ao salvar memória episódica: {e}")
+
+    try:
+        db.save_analysis(record)
+    except Exception as e:
+        print(f"  [warn] Falha ao salvar análise no SQLite: {e}")
 
 def serialize_and_pause(state: dict, reason: str) -> None:
     """

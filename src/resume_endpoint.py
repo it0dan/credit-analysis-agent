@@ -12,23 +12,34 @@ import uuid
 import argparse
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import parse_qs, urlparse
 
 # Adiciona diretório pai ao path para importações locais corretas
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import hitl_store
+import db
 from gateway_auth import gateway_auth
+
+db.init_db()
 
 def load_decision_from_memory(request_id: str) -> dict | None:
     """
-    Busca na memória episódica se a decisão resolvida/concluída para este request_id já existe.
+    Busca decisão resolvida/concluída no JSON legado sem importar o orquestrador.
     """
-    from orchestrator import load_episodic_memory
-    masked_cpf = "XXX.XXX.XXX-99"
-    decisions = load_episodic_memory(masked_cpf)
-    for d in decisions:
-        if d.get("request_id") == request_id and d.get("status") not in ["pending_human_review", "pending"]:
-            return d
+    memory_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "episodic_memory.json")
+    if not os.path.exists(memory_file):
+        return None
+    try:
+        with open(memory_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return None
+
+    for decisions in data.values():
+        for d in decisions:
+            if d.get("request_id") == request_id and d.get("status") not in ["pending_human_review", "pending"]:
+                return d
     return None
 
 def validate_token(auth_header: str) -> bool:
@@ -56,14 +67,41 @@ class ResumeHTTPHandler(BaseHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Trace-Id')
 
+    def _send_json(self, code: int, data):
+        body = json.dumps(data, ensure_ascii=False).encode('utf-8')
+        self.send_response(code)
+        self.send_header('Content-Type', 'application/json; charset=utf-8')
+        self.send_header('Content-Length', str(len(body)))
+        self._send_cors_headers()
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_OPTIONS(self):
         self.send_response(204)
         self._send_cors_headers()
         self.end_headers()
 
     def do_GET(self):
+        parsed = urlparse(self.path)
+        path = parsed.path
+
+        # Route: GET /analyses/stats
+        if path == '/analyses/stats':
+            self._send_json(200, db.get_stats())
+            return
+
+        # Route: GET /analyses?cpf_masked=...
+        if path == '/analyses':
+            cpf_masked = parse_qs(parsed.query).get('cpf_masked', [None])[0]
+            if not cpf_masked:
+                self._send_json(400, {"error": "cpf_masked required"})
+                return
+            analyses = db.list_analyses_by_cpf(cpf_masked)
+            self._send_json(200, {"analyses": analyses, "total": len(analyses)})
+            return
+
         # Route: GET /queue
-        if self.path in ['/queue', '/analysis']:
+        if path in ['/queue', '/analysis']:
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self._send_cors_headers()
@@ -85,7 +123,7 @@ class ResumeHTTPHandler(BaseHTTPRequestHandler):
             return
 
         # Route: GET /analysis/[request_id]/status
-        if self.path.startswith('/analysis/') and self.path.endswith('/status'):
+        if path.startswith('/analysis/') and path.endswith('/status'):
             parts = self.path.split('/')
             request_id = parts[2]
             
@@ -145,7 +183,25 @@ class ResumeHTTPHandler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps(resp, ensure_ascii=False).encode('utf-8'))
                 return
 
-            # 3. Caso não encontre nenhum (retorna carregando/pendente)
+            # 3. Verifica registro durável no SQLite
+            persisted = db.get_analysis(request_id)
+            if persisted:
+                resp = {
+                    "request_id": request_id,
+                    "status": persisted.get("status"),
+                    "decision": persisted.get("decision"),
+                    "trajectory": None,
+                    "justification": persisted.get("justification"),
+                    "requested_amount": persisted.get("requested_amount"),
+                    "approved_amount": persisted.get("approved_amount"),
+                    "trace_id": persisted.get("trace_id"),
+                    "created_at": persisted.get("created_at"),
+                    "updated_at": persisted.get("updated_at"),
+                }
+                self.wfile.write(json.dumps(resp, ensure_ascii=False).encode('utf-8'))
+                return
+
+            # 4. Caso não encontre nenhum (retorna carregando/pendente)
             resp = {
                 "request_id": request_id,
                 "status": "pending",
