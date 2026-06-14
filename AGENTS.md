@@ -70,9 +70,39 @@ O histórico e evolução técnica das decisões de design do sistema estão reg
 ## 7. Testes de Qualidade e Evals
 Para garantir a assertividade da tomada de decisão jurídica e de crédito, a integridade estrutural e funcional das trajetórias executadas pelo orquestrador deve ser sistematicamente aferida via framework **PromptFoo**.
 
-Para rodar os testes de avaliação, utilize a chamada:
+## Como Rodar os Evals
+
+### Suite existente (regressão)
 ```bash
-npx promptfoo eval --config evals/orchestrator.yaml
+cd credit-analysis-mas/credit-analysis-demo
+npx promptfoo eval --config evals/orchestrator.yaml   # 12/12 ✓
+npx promptfoo eval --config evals/trajectory.yaml     # T1/T2/T3 ✓
+```
+
+### Suite end-to-end (novos)
+```bash
+npx promptfoo eval --config evals/finops.yaml
+npx promptfoo eval --config evals/security.yaml
+```
+
+### Suite completa
+```bash
+npx promptfoo eval --config evals/orchestrator.yaml \
+                   --config evals/trajectory.yaml \
+                   --config evals/finops.yaml \
+                   --config evals/security.yaml
+```
+
+### Variáveis de threshold (FinOps)
+```bash
+EVAL_COST_THRESHOLD_BRL=0.10 EVAL_TOKEN_THRESHOLD=4000 \
+  npx promptfoo eval --config evals/finops.yaml
+```
+
+### Teste de chamada direta (segurança)
+```bash
+# Requer compliance-agent rodando na porta 8085
+python evals/scripts/direct_call_test.py
 ```
 
 ---
