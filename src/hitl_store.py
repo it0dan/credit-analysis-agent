@@ -1,15 +1,25 @@
 """
 hitl_store.py
-Interface com o Redis para persistência de estado do HITL assíncrono.
-Com fallback in-memory quando REDIS_URL não estiver configurado.
+Persistência de estado HITL assíncrono.
+Ordem de leitura: Redis -> SQLite -> memória do processo.
 """
 
-import os
 import json
+import os
 import time
+
+try:
+    import db as _db
+    _db.init_db()
+    _DB_AVAILABLE = True
+except Exception as e:
+    print(f"  [hitl_store] SQLite indisponível ({e}). Usando Redis/memória.")
+    _db = None
+    _DB_AVAILABLE = False
 
 # Store in-memory fallback
 _in_memory_store = {}
+
 
 def _get_redis_client():
     redis_url = os.environ.get("REDIS_URL")
@@ -17,42 +27,46 @@ def _get_redis_client():
         return None
     try:
         import redis
-        # Parse redis URL or initialize client
         return redis.from_url(redis_url, decode_responses=True)
     except (ImportError, Exception) as e:
-        print(f"  [hitl_store] Falha ao inicializar Redis client ({e}). Usando fallback in-memory.")
+        print(f"  [hitl_store] Falha ao inicializar Redis client ({e}). Usando fallback durável/local.")
         return None
 
+
 def save_hitl_state(request_id: str, state_dict: dict, ttl_seconds: int) -> None:
-    """
-    Salva o estado da análise no Redis com um tempo de expiração (TTL).
-    Se o Redis não estiver disponível, salva na memória do processo (fallback).
-    """
-    # Garante serialização compatível
+    """Salva estado HITL em Redis, SQLite e memória de processo."""
     payload_str = json.dumps(state_dict, ensure_ascii=False)
-    
+    saved_anywhere = False
+
     r = _get_redis_client()
     if r:
         try:
             key = f"hitl:analysis:{request_id}"
             r.setex(key, ttl_seconds, payload_str)
             print(f"  [hitl_store] Estado salvo no Redis para {request_id} com TTL de {ttl_seconds}s.")
-            return
+            saved_anywhere = True
         except Exception as e:
-            print(f"  [hitl_store] Erro ao salvar no Redis: {e}. Salvando em memória...")
-    
-    # Fallback in-memory
+            print(f"  [hitl_store] Erro ao salvar no Redis: {e}.")
+
+    if _DB_AVAILABLE:
+        try:
+            _db.save_hitl_to_db(request_id, state_dict, ttl_seconds)
+            print(f"  [hitl_store] Estado salvo no SQLite para {request_id} com TTL de {ttl_seconds}s.")
+            saved_anywhere = True
+        except Exception as e:
+            print(f"  [hitl_store] Erro ao salvar no SQLite: {e}.")
+
     expires_at = time.time() + ttl_seconds
     _in_memory_store[request_id] = {
         "payload": payload_str,
-        "expires_at": expires_at
+        "expires_at": expires_at,
     }
-    print(f"  [hitl_store] Estado salvo em memória para {request_id} (expira em {ttl_seconds}s).")
+    if not saved_anywhere:
+        print(f"  [hitl_store] Estado salvo apenas em memória para {request_id} (expira em {ttl_seconds}s).")
+
 
 def get_hitl_state(request_id: str) -> dict | None:
-    """
-    Recupera o estado do Redis. Retorna None se não existir ou tiver expirado.
-    """
+    """Recupera estado HITL de Redis, SQLite ou memória, respeitando TTL."""
     r = _get_redis_client()
     if r:
         try:
@@ -61,46 +75,55 @@ def get_hitl_state(request_id: str) -> dict | None:
             if payload_str:
                 return json.loads(payload_str)
             print(f"  [hitl_store] Estado não encontrado no Redis para {request_id}.")
-            return None
         except Exception as e:
-            print(f"  [hitl_store] Erro ao ler do Redis: {e}. Lendo da memória...")
-            
-    # Fallback in-memory
+            print(f"  [hitl_store] Erro ao ler do Redis: {e}.")
+
+    if _DB_AVAILABLE:
+        try:
+            state = _db.get_hitl_from_db(request_id)
+            if state:
+                return state
+        except Exception as e:
+            print(f"  [hitl_store] Erro ao ler do SQLite: {e}.")
+
     item = _in_memory_store.get(request_id)
     if item:
-        # Valida expiração (TTL)
         if time.time() > item["expires_at"]:
             print(f"  [hitl_store] Estado em memória expirado para {request_id}.")
             delete_hitl_state(request_id)
             return None
         return json.loads(item["payload"])
-    
+
     return None
 
+
 def delete_hitl_state(request_id: str) -> None:
-    """
-    Deleta o estado do Redis ou da memória.
-    """
+    """Remove estado HITL de Redis, SQLite e memória."""
     r = _get_redis_client()
     if r:
         try:
             key = f"hitl:analysis:{request_id}"
             r.delete(key)
             print(f"  [hitl_store] Estado deletado do Redis para {request_id}.")
-            return
         except Exception as e:
             print(f"  [hitl_store] Erro ao deletar do Redis: {e}.")
-            
-    # Fallback in-memory
+
+    if _DB_AVAILABLE:
+        try:
+            _db.delete_hitl_from_db(request_id)
+            print(f"  [hitl_store] Estado deletado do SQLite para {request_id}.")
+        except Exception as e:
+            print(f"  [hitl_store] Erro ao deletar do SQLite: {e}.")
+
     if request_id in _in_memory_store:
         del _in_memory_store[request_id]
         print(f"  [hitl_store] Estado deletado da memória para {request_id}.")
 
+
 def list_all_hitl_states() -> list[dict]:
-    """
-    Retorna uma lista com todos os estados HITL ativos e não expirados.
-    """
-    states = []
+    """Lista estados HITL ativos e não expirados, combinando Redis/SQLite/memória."""
+    states_by_id = {}
+
     r = _get_redis_client()
     if r:
         try:
@@ -108,16 +131,23 @@ def list_all_hitl_states() -> list[dict]:
             for key in keys:
                 payload_str = r.get(key)
                 if payload_str:
-                    states.append(json.loads(payload_str))
-            return states
+                    state = json.loads(payload_str)
+                    states_by_id[state.get("request_id") or key.rsplit(":", 1)[-1]] = state
         except Exception as e:
             print(f"  [hitl_store] Erro ao listar chaves do Redis: {e}.")
-    
-    # Fallback in-memory
+
+    if _DB_AVAILABLE:
+        try:
+            for state in _db.list_hitl_from_db():
+                states_by_id[state.get("request_id")] = state
+        except Exception as e:
+            print(f"  [hitl_store] Erro ao listar estados do SQLite: {e}.")
+
     for request_id, item in list(_in_memory_store.items()):
         if time.time() > item["expires_at"]:
             del _in_memory_store[request_id]
         else:
-            states.append(json.loads(item["payload"]))
-    return states
+            state = json.loads(item["payload"])
+            states_by_id[request_id] = state
 
+    return list(states_by_id.values())
