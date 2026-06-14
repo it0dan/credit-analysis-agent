@@ -22,6 +22,10 @@ class GatewayAuth:
         # Token e tempo de expiração padrão (compatibilidade)
         self._token: str | None = None
         self._expires_at: float = 0
+        
+        # Rastreabilidade para auditoria de AIOps/Security
+        self.agents_tokens_used: dict[str, str] = {}
+        self.used_fallback_token: bool = False
 
     def get_token(self) -> str:
         """
@@ -41,24 +45,34 @@ class GatewayAuth:
         aud_map_str = os.environ.get("AI_GATEWAY_JWT_AUDIENCE_MAP")
         if not aud_map_str:
             print(f"  [warn] AI_GATEWAY_JWT_AUDIENCE_MAP não definida. Usando token padrão fallback para '{target_agent}'.")
-            return self.get_token()
+            self.used_fallback_token = True
+            token = self.get_token()
+            self.agents_tokens_used[target_agent] = token
+            return token
 
         try:
             aud_map = json.loads(aud_map_str)
         except Exception as e:
             print(f"  [warn] Erro ao fazer parsing de AI_GATEWAY_JWT_AUDIENCE_MAP ({e}). Usando token padrão fallback.")
-            return self.get_token()
+            self.used_fallback_token = True
+            token = self.get_token()
+            self.agents_tokens_used[target_agent] = token
+            return token
 
         audience = aud_map.get(target_agent)
         if not audience:
             print(f"  [warn] Agente '{target_agent}' não configurado no mapa de audience. Usando token padrão fallback.")
-            return self.get_token()
+            self.used_fallback_token = True
+            token = self.get_token()
+            self.agents_tokens_used[target_agent] = token
+            return token
 
         # Verifica cache específico para esta audience
         cached = self._cache.get(audience)
         if cached:
             token, expires_at = cached
             if time.time() < expires_at - 30:
+                self.agents_tokens_used[target_agent] = token
                 return token
 
         # Solicita novo token com audience específica
@@ -66,6 +80,7 @@ class GatewayAuth:
         token, ttl = self._fetch_token(audience=audience)
         expires_at = time.time() + ttl
         self._cache[audience] = (token, expires_at)
+        self.agents_tokens_used[target_agent] = token
         return token
 
     @staticmethod

@@ -54,6 +54,24 @@ tests:
           if (!turn4.includes("decision_synthesize")) throw new Error("Turno 4 deve acionar decision_synthesize");
 
           return true;
+      - type: javascript
+        value: |
+          // OpenTelemetry: trace_id no formato W3C (00-<32hex>-<16hex>-<2hex>)
+          const out = typeof output === 'string' ? JSON.parse(output) : output;
+          return /^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/.test(out._meta?.finops?.trace_id ?? '');
+        threshold: 1
+      - type: javascript
+        value: |
+          // span_id presente
+          const out = typeof output === 'string' ? JSON.parse(output) : output;
+          return typeof out._meta?.finops?.span_id === 'string' && out._meta.finops.span_id.length > 0;
+        threshold: 1
+      - type: javascript
+        value: |
+          // X-Trace-Id legado ainda propagado (coexistência durante transição)
+          const out = typeof output === 'string' ? JSON.parse(output) : output;
+          return typeof out._meta?.trace_id === 'string' && out._meta.trace_id.length > 0;
+        threshold: 1
 
   # ─────────────────────────────────────────────────────────────────────────
   # Caso 2 — Escalabilidade HITL por limite (threshold)
@@ -98,6 +116,24 @@ tests:
           if (!turn5.includes("handoff_to_human")) throw new Error("Turno 5 deve acionar handoff_to_human");
 
           return true;
+      - type: javascript
+        value: |
+          // OpenTelemetry: trace_id no formato W3C (00-<32hex>-<16hex>-<2hex>)
+          const out = typeof output === 'string' ? JSON.parse(output) : output;
+          return /^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/.test(out._meta?.finops?.trace_id ?? '');
+        threshold: 1
+      - type: javascript
+        value: |
+          // span_id presente
+          const out = typeof output === 'string' ? JSON.parse(output) : output;
+          return typeof out._meta?.finops?.span_id === 'string' && out._meta.finops.span_id.length > 0;
+        threshold: 1
+      - type: javascript
+        value: |
+          // X-Trace-Id legado ainda propagado (coexistência durante transição)
+          const out = typeof output === 'string' ? JSON.parse(output) : output;
+          return typeof out._meta?.trace_id === 'string' && out._meta.trace_id.length > 0;
+        threshold: 1
 
   # ─────────────────────────────────────────────────────────────────────────
   # Caso 3 — Short-circuit de Compliance
@@ -137,6 +173,24 @@ tests:
           if (!turn3.includes("compliance_check")) throw new Error("Turno 3 deve acionar compliance_check (onde ocorre a falha)");
 
           return true;
+      - type: javascript
+        value: |
+          // OpenTelemetry: trace_id no formato W3C (00-<32hex>-<16hex>-<2hex>)
+          const out = typeof output === 'string' ? JSON.parse(output) : output;
+          return /^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/.test(out._meta?.finops?.trace_id ?? '');
+        threshold: 1
+      - type: javascript
+        value: |
+          // span_id presente
+          const out = typeof output === 'string' ? JSON.parse(output) : output;
+          return typeof out._meta?.finops?.span_id === 'string' && out._meta.finops.span_id.length > 0;
+        threshold: 1
+      - type: javascript
+        value: |
+          // X-Trace-Id legado ainda propagado (coexistência durante transição)
+          const out = typeof output === 'string' ? JSON.parse(output) : output;
+          return typeof out._meta?.trace_id === 'string' && out._meta.trace_id.length > 0;
+        threshold: 1
 
   # ─────────────────────────────────────────────────────────────────────────
   # Caso 4 — Short-circuit por erro técnico de Bureau
@@ -177,6 +231,24 @@ tests:
           if (!turn2.includes("handoff_to_human")) throw new Error("Turno 2 deve acionar handoff_to_human");
 
           return true;
+      - type: javascript
+        value: |
+          // OpenTelemetry: trace_id no formato W3C (00-<32hex>-<16hex>-<2hex>)
+          const out = typeof output === 'string' ? JSON.parse(output) : output;
+          return /^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/.test(out._meta?.finops?.trace_id ?? '');
+        threshold: 1
+      - type: javascript
+        value: |
+          // span_id presente
+          const out = typeof output === 'string' ? JSON.parse(output) : output;
+          return typeof out._meta?.finops?.span_id === 'string' && out._meta.finops.span_id.length > 0;
+        threshold: 1
+      - type: javascript
+        value: |
+          // X-Trace-Id legado ainda propagado (coexistência durante transição)
+          const out = typeof output === 'string' ? JSON.parse(output) : output;
+          return typeof out._meta?.trace_id === 'string' && out._meta.trace_id.length > 0;
+        threshold: 1
 
   # ─────────────────────────────────────────────────────────────────────────
   # Caso 5 — Múltiplos erros simultâneos (Fallback completo)
@@ -216,6 +288,52 @@ tests:
           if (!turn2.includes("handoff_to_human")) throw new Error("Turno 2 deve acionar handoff_to_human");
 
           return true;
+      - type: javascript
+        value: |
+          // OpenTelemetry: trace_id no formato W3C (00-<32hex>-<16hex>-<2hex>)
+          const out = typeof output === 'string' ? JSON.parse(output) : output;
+          return /^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/.test(out._meta?.finops?.trace_id ?? '');
+        threshold: 1
+      - type: javascript
+        value: |
+          // span_id presente
+          const out = typeof output === 'string' ? JSON.parse(output) : output;
+          return typeof out._meta?.finops?.span_id === 'string' && out._meta.finops.span_id.length > 0;
+        threshold: 1
+      - type: javascript
+        value: |
+          // X-Trace-Id legado ainda propagado (coexistência durante transição)
+          const out = typeof output === 'string' ? JSON.parse(output) : output;
+          return typeof out._meta?.trace_id === 'string' && out._meta.trace_id.length > 0;
+        threshold: 1
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Novo Cenário — hitl_async
+  # ─────────────────────────────────────────────────────────────────────────
+  - description: "hitl_async — estado serializado e processo encerra sem bloquear"
+    vars:
+      cpf: "{{hitl_cpf}}"  # CPF que dispara HITL no orchestrator
+      scenario: "hitl_required"
+      amount: 80000
+    options:
+      transform: "JSON.parse(output)"
+    assert:
+      - type: javascript
+        value: output._meta?.hitl?.state_saved === true;
+      - type: javascript
+        value: output._meta?.hitl?.process_exited_cleanly === true;
+      - type: javascript
+        value: typeof output._meta?.hitl?.request_id === 'string';
+      - type: javascript
+        value: typeof output._meta?.hitl?.expires_at === 'string';
+      - type: javascript
+        value: output._meta?.hitl?.interrupt_event?.type === 'HITL_REQUIRED';
+      - type: javascript
+        value: |
+          // X-Trace-Id preservado no interrupt event
+          return typeof output._meta?.hitl?.interrupt_event?.trace_id === 'string';
+      - type: javascript
+        value: output._meta?.finops?.estimated_cost_brl > 0;
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Configuração de output
