@@ -31,12 +31,12 @@
   - [x] Disparar propostas de crédito e inspecionar a saída do SSE em tempo real via `curl`.
   - [x] Validar o comportamento de replay após a conclusão da análise.
   - [x] Confirmar ausência de PII e CPFs nos eventos.
-  - [ ] Executar `./run_all_evals.sh` e assegurar que não haja regressão nos testes do Promptfoo.
+  - [x] Executar `./run_all_evals.sh` e assegurar que não haja regressão nos testes do Promptfoo.
   - [x] Adicionar testes unitários do canal não-bloqueante, formato SSE e replay SQLite.
 
 ### Resultado da revalidação em 2026-07-13
 
-`./run_all_evals.sh` foi executado, mas o primeiro conjunto encerrou com 5/13 casos:
-quatro erros HTTP 503 por alta demanda do modelo e quatro divergências cognitivas.
-O script abortou antes das suítes restantes. Os testes determinísticos desta mudança
-permanecem verdes; o eval completo precisa ser repetido quando o Gateway estabilizar.
+Após estabilizar contratos, concorrência, retentativas e renovação do JWT, a suíte
+principal concluiu com 13/13. As demais suítes também passaram: trajetória 6/6,
+FinOps 8/8, segurança 5/5, bureau 8/8, documentos 8/8, compliance 13/13,
+risco 6/6 e decisão 7/7.
