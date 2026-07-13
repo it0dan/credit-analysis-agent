@@ -832,6 +832,7 @@ def build_llm_client() -> OpenAI:
         base_url=base_url,
         api_key="not-used",
         default_headers=headers,
+        max_retries=int(os.getenv("AI_GATEWAY_MAX_RETRIES", "4")),
     )
 
 # ─────────────────────────────────────────────────────────────────────────────

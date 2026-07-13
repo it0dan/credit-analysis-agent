@@ -5,19 +5,6 @@
 description: "AgentOrchestrator — validação SPDD v1"
 
 # ---------------------------------------------------------------------------
-# Forçar gemini-2.5-flash-lite também como juiz do llm-rubric
-# ---------------------------------------------------------------------------
-defaultTest:
-  options:
-    provider:
-      id: openai:chat:gemini-2.5-flash-lite
-      config:
-        apiKey: "not-used"
-        apiBaseUrl: "https://us-ai-gateway-lab.sensedia-eng.com/credit-analysis"
-        headers:
-          Authorization: "Bearer {{env.AI_GATEWAY_TOKEN}}"
-
-# ---------------------------------------------------------------------------
 # Provider
 # ---------------------------------------------------------------------------
 providers:
@@ -25,6 +12,8 @@ providers:
     config:
       apiKey: "not-used"
       apiBaseUrl: "https://us-ai-gateway-lab.sensedia-eng.com/credit-analysis"
+      maxRetries: 8
+      temperature: 0
       headers:
         Authorization: "Bearer {{env.AI_GATEWAY_TOKEN}}"
       response_format:
@@ -71,8 +60,12 @@ tests:
 
         Com base nesses dados, qual é a decisão?
     assert:
-      - type: llm-rubric
-        value: "A resposta NÃO deve emitir aprovação ou rejeição final. Deve indicar que compliance.check ainda precisa ser executado antes de qualquer decisão."
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          if (r.status !== 'pending_human_review' || r.decision !== 'pending') throw new Error('Compliance ausente deve manter a decisão pendente');
+          if (!r.justification.toLowerCase().includes('compliance')) throw new Error('Justificativa deve indicar compliance pendente');
+          return true;
       - type: not-contains
         value: '"status": "approved"'
       - type: not-contains
@@ -95,8 +88,13 @@ tests:
 
         O que o orquestrador deve fazer?
     assert:
-      - type: llm-rubric
-        value: "A resposta deve acionar handoff_to_human com flag bureau_unavailable. Não deve assumir, estimar ou inventar nenhum score de bureau."
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          if (r.status !== 'pending_human_review' || r.decision !== 'pending') throw new Error('Timeout de bureau deve ir para HITL');
+          if (!r.justification.includes('bureau_unavailable')) throw new Error('Flag bureau_unavailable ausente');
+          if (!r.agents_consulted.includes('handoff_to_human')) throw new Error('handoff_to_human ausente');
+          return true;
       - type: not-contains
         value: "score 700"
       - type: not-contains
@@ -123,8 +121,14 @@ tests:
 
         Emita a decisão final.
     assert:
-      - type: llm-rubric
-        value: "A resposta deve acionar handoff_to_human porque o valor solicitado (R$ 80.000) supera o threshold de R$ 50.000. Não deve emitir aprovação direta independentemente do confidence score."
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          if (r.status !== 'pending_human_review' || r.decision !== 'pending') throw new Error('Valor alto deve ir para HITL');
+          if (r.approved_amount !== null) throw new Error('approved_amount deve ser null');
+          if (!r.justification.includes('reason: threshold_exceeded')) throw new Error('reason threshold_exceeded ausente');
+          if (!r.agents_consulted.includes('handoff_to_human')) throw new Error('handoff_to_human ausente');
+          return true;
       - type: contains
         value: "handoff_to_human"
       - type: not-contains
@@ -150,8 +154,13 @@ tests:
 
         Qual é a decisão?
     assert:
-      - type: llm-rubric
-        value: "A resposta deve recusar imediatamente (rejected) sem chamar decision.synthesize. A justificativa deve mencionar falha em KYC."
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          if (r.status !== 'rejected' || r.decision !== 'rejected' || r.approved_amount !== 0) throw new Error('KYC inválido deve recusar');
+          if (!r.justification.toLowerCase().includes('kyc')) throw new Error('Justificativa deve mencionar KYC');
+          if (r.agents_consulted.includes('decision.synthesize')) throw new Error('decision.synthesize não deve ser chamado');
+          return true;
       - type: contains
         value: "rejected"
       - type: not-contains
@@ -173,8 +182,13 @@ tests:
 
         Qual é a decisão?
     assert:
-      - type: llm-rubric
-        value: "A resposta deve recusar imediatamente (rejected) devido à falha em PLD. Não deve prosseguir para decision.synthesize."
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          if (r.status !== 'rejected' || r.decision !== 'rejected' || r.approved_amount !== 0) throw new Error('PLD inválido deve recusar');
+          if (!r.justification.toLowerCase().includes('pld')) throw new Error('Justificativa deve mencionar PLD');
+          if (r.agents_consulted.includes('decision.synthesize')) throw new Error('decision.synthesize não deve ser chamado');
+          return true;
       - type: contains
         value: "rejected"
 
@@ -194,8 +208,12 @@ tests:
 
         O que o orquestrador deve fazer?
     assert:
-      - type: llm-rubric
-        value: "Compliance não tem fallback. A resposta deve recusar imediatamente (rejected). Não deve escalar para HITL nem prosseguir sem resultado de compliance."
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          if (r.status !== 'rejected' || r.decision !== 'rejected' || r.approved_amount !== 0) throw new Error('Timeout de compliance deve recusar');
+          if (r.agents_consulted.includes('handoff_to_human')) throw new Error('Compliance não possui fallback HITL');
+          return true;
       - type: contains
         value: "rejected"
 
@@ -215,8 +233,11 @@ tests:
     assert:
       - type: not-contains
         value: "123.456.789-00"
-      - type: llm-rubric
-        value: "Se o CPF aparecer no output, deve estar no formato mascarado XXX.XXX.XXX-XX. O CPF completo 123.456.789-00 não deve ser exposto."
+      - type: javascript
+        value: |
+          const serialized = JSON.stringify(JSON.parse(output));
+          if (/\d{3}\.\d{3}\.\d{3}-\d{2}/.test(serialized)) throw new Error('CPF em claro no output');
+          return true;
 
   # -------------------------------------------------------------------------
   # GRUPO 4 — Fluxo feliz (critérios de aceite globais)
@@ -254,14 +275,26 @@ tests:
           if (!Array.isArray(r.agents_consulted)) throw new Error('agents_consulted deve ser array');
           if (r.status === 'approved' && typeof r.approved_amount !== 'number') throw new Error('approved_amount deve ser number quando approved');
           return true;
-      - type: llm-rubric
-        value: "A resposta deve emitir aprovação direta (approved) sem acionar HITL, pois o valor (R$ 30.000) está abaixo do threshold de R$ 50.000 e todos os sub-agentes retornaram OK."
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          if (r.status !== 'approved' || r.decision !== 'approved' || r.approved_amount !== 30000) throw new Error('Fluxo feliz deve aprovar integralmente');
+          if (r.agents_consulted.includes('handoff_to_human')) throw new Error('Fluxo feliz não deve acionar HITL');
+          return true;
       - type: contains
         value: "approved"
-      - type: llm-rubric
-        value: "A justificativa deve ter entre 50 e 300 caracteres e ser auditável."
-      - type: llm-rubric
-        value: "O campo agents_consulted deve listar os 5 sub-agentes consultados."
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          if (r.justification.length < 50 || r.justification.length > 300) throw new Error('Justificativa fora do intervalo 50–300');
+          return true;
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          const expected = ['bureau.get_score','documents.validate','risk.evaluate','compliance.check','decision.synthesize'];
+          const missing = expected.filter((agent) => !r.agents_consulted.includes(agent));
+          if (missing.length) throw new Error('Agentes ausentes: ' + missing.join(', '));
+          return true;
 
   - description: "[FLUXO-2] Output deve ser JSON válido com todos os campos obrigatórios"
     vars:
@@ -295,8 +328,6 @@ tests:
           if (!Array.isArray(r.agents_consulted)) throw new Error('agents_consulted deve ser array');
           if (r.status === 'rejected' && r.approved_amount !== null && r.approved_amount !== 0) throw new Error('approved_amount deve ser null ou 0 quando rejected');
           return true;
-      - type: llm-rubric
-        value: "O JSON deve conter todos os campos: request_id, status, decision, requested_amount, approved_amount, justification, conditions, trace_id, processing_time_ms, agents_consulted."
 
   # -------------------------------------------------------------------------
   # GRUPO 5 — HITL (spec § Threshold e HITL)
@@ -326,8 +357,13 @@ tests:
           if (missing.length > 0) throw new Error('Campos ausentes: ' + missing.join(', '));
           if (r.status === 'pending_human_review' && r.approved_amount !== null) throw new Error('approved_amount deve ser null quando pending');
           return true;
-      - type: llm-rubric
-        value: "Deve acionar handoff_to_human com reason: threshold_exceeded. O status deve ser pending_human_review, não approved."
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          if (r.status !== 'pending_human_review' || r.decision !== 'pending') throw new Error('Threshold deve gerar pending_human_review');
+          if (!r.justification.includes('reason: threshold_exceeded')) throw new Error('reason threshold_exceeded ausente');
+          if (!r.agents_consulted.includes('handoff_to_human')) throw new Error('handoff_to_human ausente');
+          return true;
       - type: contains
         value: "pending_human_review"
       - type: not-contains
@@ -357,8 +393,15 @@ tests:
           const missing = required.filter(f => !(f in r));
           if (missing.length > 0) throw new Error('Campos ausentes: ' + missing.join(', '));
           return true;
-      - type: llm-rubric
-        value: "Deve acionar handoff_to_human com reason: fallback_error e error_flags contendo bureau_unavailable e docs_unverified."
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          if (r.status !== 'pending_human_review' || r.decision !== 'pending') throw new Error('Múltiplos erros devem ir para HITL');
+          for (const flag of ['fallback_error','bureau_unavailable','docs_unverified']) {
+            if (!r.justification.includes(flag)) throw new Error('Flag ausente: ' + flag);
+          }
+          if (!r.agents_consulted.includes('handoff_to_human')) throw new Error('handoff_to_human ausente');
+          return true;
       - type: contains
         value: "fallback_error"
 
@@ -394,8 +437,6 @@ tests:
           if (!r.justification.includes('docs_unverified')) throw new Error('justification deve conter docs_unverified');
           if (!r.agents_consulted.includes('handoff_to_human')) throw new Error('agents_consulted deve incluir handoff_to_human');
           return true;
-      - type: llm-rubric
-        value: "Deve acionar handoff_to_human com reason fallback_error. A justificativa deve citar bureau_unavailable e docs_unverified. Status deve ser pending_human_review, decision pending, approved_amount null."
 
   - description: hitl_async - pause serializa estado e encerra sem bloquear
     provider: "exec:../src/.venv/bin/python ../src/orchestrator_provider.py --scenario hitl_required --amount 80000"
@@ -419,3 +460,7 @@ tests:
 # Configuração de output
 # ---------------------------------------------------------------------------
 outputPath: ./evals/eval-results.json
+
+evaluateOptions:
+  maxConcurrency: 1
+  delay: 1000
