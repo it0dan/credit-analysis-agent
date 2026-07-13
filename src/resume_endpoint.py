@@ -11,7 +11,7 @@ import time
 import uuid
 import argparse
 import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 # Adiciona diretório pai ao path para importações locais corretas
@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import hitl_store
 import db
+import sse_stream
 from gateway_auth import gateway_auth
 
 db.init_db()
@@ -120,6 +121,72 @@ class ResumeHTTPHandler(BaseHTTPRequestHandler):
                     "status": "pending_human_review"
                 })
             self.wfile.write(json.dumps(queue_items, ensure_ascii=False).encode('utf-8'))
+            return
+
+        # Route: GET /analysis/[request_id]/events
+        if path.startswith('/analysis/') and path.endswith('/events'):
+            request_id = path.split('/')[2]
+
+            import queue
+            q = sse_stream.register_client(request_id)
+            if q is None:
+                past_events = db.list_events(request_id)
+                if past_events:
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'text/event-stream; charset=utf-8')
+                    self.send_header('Cache-Control', 'no-cache')
+                    self.send_header('Connection', 'keep-alive')
+                    self.send_header('X-Accel-Buffering', 'no')
+                    self._send_cors_headers()
+                    self.end_headers()
+                    for ev in past_events:
+                        self.wfile.write(sse_stream.format_sse(ev))
+                    self.wfile.write(sse_stream.stream_end())
+                    self.wfile.flush()
+                    return
+                self._send_json(404, {"error": "analysis not found or not started"})
+                return
+
+            # Stream ao vivo
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/event-stream; charset=utf-8')
+            self.send_header('Cache-Control', 'no-cache')
+            self.send_header('Connection', 'keep-alive')
+            self.send_header('X-Accel-Buffering', 'no')
+            self._send_cors_headers()
+            self.end_headers()
+
+            # O POST pode retornar depois de os primeiros agentes já terem rodado.
+            # Reenvia o histórico persistido antes de acompanhar a fila ao vivo.
+            for event in db.list_events(request_id):
+                self.wfile.write(sse_stream.format_sse(event))
+            self.wfile.flush()
+
+            KEEPALIVE_INTERVAL = 15  # segundos
+            try:
+                while True:
+                    try:
+                        event = q.get(timeout=KEEPALIVE_INTERVAL)
+                    except queue.Empty:
+                        # keepalive
+                        self.wfile.write(sse_stream.format_keepalive())
+                        self.wfile.flush()
+                        continue
+
+                    if event is None:  # sentinel: canal fechado
+                        self.wfile.write(sse_stream.stream_end())
+                        self.wfile.flush()
+                        break
+
+                    self.wfile.write(sse_stream.format_sse(event))
+                    self.wfile.flush()
+
+                    if event.get("type") in ("analysis_done", "hitl_required", "analysis_error"):
+                        break
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            finally:
+                sse_stream.unregister_client(request_id, q)
             return
 
         # Route: GET /analysis/[request_id]/status
@@ -249,6 +316,9 @@ class ResumeHTTPHandler(BaseHTTPRequestHandler):
             # Criamos o request_id oficial
             request_id = str(uuid.uuid4())[:8]
 
+            # Inicializa o canal SSE
+            sse_stream.create_channel(request_id)
+
             # Executa o orquestrador multiagente real em um thread no background
             from orchestrator import run_orchestrator
             
@@ -262,7 +332,19 @@ class ResumeHTTPHandler(BaseHTTPRequestHandler):
 
                 def run(self):
                     print(f"  [api] Iniciando orquestrador em background para cenário '{self.scenario}' (R$ {self.amount}) com ID {self.request_id}...")
-                    self.result = run_orchestrator(self.scenario, self.amount, request_id=self.request_id)
+                    try:
+                        self.result = run_orchestrator(self.scenario, self.amount, request_id=self.request_id)
+                    except Exception as e:
+                        print(f"  [api] Erro na thread do orquestrador: {e}")
+                        error_event = {
+                            "type": "analysis_error",
+                            "request_id": self.request_id,
+                            "error": "analysis_processing_failed"
+                        }
+                        sse_stream.emit_event(self.request_id, error_event)
+                        db.save_event(self.request_id, error_event)
+                        sse_stream.close_channel(self.request_id)
+                        return
                     print(f"  [api] Orquestrador concluído. ID: {self.result.get('request_id')} | Status: {self.result.get('status')}")
 
             thread = OrchestratorThread(scenario, amount, request_id)
@@ -426,7 +508,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     server_address = ('', args.port)
-    httpd = HTTPServer(server_address, ResumeHTTPHandler)
+    httpd = ThreadingHTTPServer(server_address, ResumeHTTPHandler)
     print(f"🚀 Servidor do endpoint /resume rodando na porta {args.port}...")
     try:
         httpd.serve_forever()

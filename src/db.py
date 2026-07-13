@@ -56,6 +56,17 @@ def init_db() -> None:
                     payload     TEXT NOT NULL,
                     expires_at  REAL NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS analysis_events (
+                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                    request_id   TEXT NOT NULL,
+                    event_type   TEXT NOT NULL,
+                    event_data   TEXT NOT NULL,
+                    created_at   TEXT NOT NULL,
+                    FOREIGN KEY (request_id) REFERENCES analyses(request_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_analysis_events_request ON analysis_events(request_id);
+                CREATE INDEX IF NOT EXISTS idx_analysis_events_created ON analysis_events(created_at);
                 """
             )
             count = conn.execute("SELECT COUNT(*) FROM analyses").fetchone()[0]
@@ -269,6 +280,38 @@ def list_hitl_from_db() -> list[dict[str, Any]]:
         delete_hitl_from_db(request_id)
 
     return states
+
+
+def save_event(request_id: str, event: dict[str, Any]) -> None:
+    """Persiste um evento SSE completo para replay posterior."""
+    with _lock:
+        with _get_conn() as conn:
+            conn.execute(
+                "INSERT INTO analysis_events (request_id, event_type, event_data, created_at) VALUES (?,?,?,?)",
+                (request_id, event.get("type", "unknown"), json.dumps(event, ensure_ascii=False), event.get("timestamp", _now_iso()))
+            )
+
+
+def list_events(request_id: str, limit: int = 1000) -> list[dict[str, Any]]:
+    """Retorna o histórico de eventos em ordem de emissão."""
+    with _get_conn() as conn:
+        rows = conn.execute(
+            "SELECT event_data FROM analysis_events WHERE request_id=? ORDER BY id ASC LIMIT ?",
+            (request_id, limit)
+        ).fetchall()
+        return [json.loads(r[0]) for r in rows]
+
+
+def cleanup_old_events(max_age_hours: int = 168) -> int:
+    """Remove eventos com mais de max_age_hours. Retorna quantidade removida."""
+    cutoff = (time.time() - (max_age_hours * 3600))
+    with _lock:
+        with _get_conn() as conn:
+            cur = conn.execute(
+                "DELETE FROM analysis_events WHERE created_at < ?",
+                (datetime.fromtimestamp(cutoff, tz=timezone.utc).isoformat(),),
+            )
+            return cur.rowcount
 
 
 if __name__ == "__main__":

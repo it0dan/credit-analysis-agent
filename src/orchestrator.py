@@ -41,6 +41,7 @@ from dotenv import load_dotenv
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
 import db
+import sse_stream
 
 db.init_db()
 
@@ -420,6 +421,21 @@ def save_episodic_memory(masked_cpf: str, decision_record: dict) -> None:
     except Exception as e:
         print(f"  [warn] Falha ao salvar análise no SQLite: {e}")
 
+    req_id = decision_record.get("request_id", "")
+    if req_id:
+        done_event = {
+            "type": "analysis_done",
+            "request_id": req_id,
+            "status": decision_record.get("status", "unknown"),
+            "decision": decision_record.get("decision", ""),
+            "approved_amount": decision_record.get("approved_amount"),
+            "justification": decision_record.get("justification", ""),
+            "finops_cost_brl": decision_record.get("estimated_cost_brl") or (decision_record.get("_meta") or {}).get("finops", {}).get("estimated_cost_brl") or 0.0,
+        }
+        sse_stream.emit_event(req_id, done_event)
+        db.save_event(req_id, done_event)
+        sse_stream.close_channel(req_id)
+
 def serialize_and_pause(state: dict, reason: str) -> None:
     """
     Salva o estado no Redis/In-memory e emite o evento de interrupção via hitl_interrupt.
@@ -438,6 +454,11 @@ def serialize_and_pause(state: dict, reason: str) -> None:
         expires_at=state["expires_at"]
     )
     hitl_interrupt.emit_interrupt_event(event)
+
+    hitl_event = {"type": "hitl_required", "request_id": state["request_id"], "reason": reason}
+    sse_stream.emit_event(state["request_id"], hitl_event)
+    db.save_event(state["request_id"], hitl_event)
+    sse_stream.close_channel(state["request_id"])
 
 def resume_analysis(state: dict, decision_input: dict) -> dict:
     """
@@ -848,6 +869,24 @@ def run_orchestrator(scenario: str, amount: float, request_id: str = None) -> di
     agents  = MockAgents(scenario=scenario)
     client  = build_llm_client()
     finops  = FinOpsTracker()
+
+    # Salva o registro inicial no SQLite para evitar violação de Foreign Key nos eventos
+    db.save_analysis({
+        "request_id": request_id,
+        "cpf_masked": masked_cpf,
+        "requested_amount": amount,
+        "status": "pending",
+        "trace_id": trace_id
+    })
+
+    # Emite analysis_started para clientes SSE já conectados
+    started_event = {
+        "type": "analysis_started",
+        "request_id": request_id,
+        "trace_id": trace_id,
+    }
+    sse_stream.emit_event(request_id, started_event)
+    db.save_event(request_id, started_event)
 
     # trajectory_log: cada entrada é uma tool_call decidida pelo LLM, em ordem.
     # Habilita trajectory evals (sequence, short-circuit, compliance-never-skipped).
@@ -1281,10 +1320,41 @@ def run_orchestrator(scenario: str, amount: float, request_id: str = None) -> di
                     span_t3 = tracer.start_span("analysis.t3")
                     current_span = span_t3
 
+            turn_label = "T1" if name in ("bureau_get_score", "documents_validate", "risk_evaluate") \
+                         else "T2" if name == "compliance_check" \
+                         else "T3"
+            started_event = {
+                "type": "agent_started",
+                "request_id": request_id,
+                "agent": name,
+                "turn": turn_label,
+            }
+            sse_stream.emit_event(request_id, started_event)
+            db.save_event(request_id, started_event)
+
             print(f"  [tool] {name}({json.dumps(args, ensure_ascii=False)})")
             tool_start_time = time.time()
             result = execute_tool(name, args, agents, trace_id=trace_id)
             tool_latency_ms = int((time.time() - tool_start_time) * 1000)
+
+            agent_event = {
+                "type": "agent_completed",
+                "request_id": request_id,
+                "agent": name,
+                "turn": turn_label,
+                "status": "success" if result.get("status") not in ("error", "timeout", "fail") else "error",
+                "latency_ms": tool_latency_ms,
+            }
+            # Enriquecimento seguro por agente (sem dados sensíveis)
+            if name == "bureau_get_score" and "score" in result:
+                agent_event["score"] = result["score"]
+            if name == "risk_evaluate" and "risk_tier" in result:
+                agent_event["risk_tier"] = result["risk_tier"]
+            if name == "compliance_check":
+                agent_event["kyc_approved"] = result.get("kyc_approved", False)
+            sse_stream.emit_event(request_id, agent_event)
+            # Persistir no SQLite para replay
+            db.save_event(request_id, agent_event)
             
             res_status = result.get("status", "ok") if isinstance(result, dict) else "ok"
             if res_status == "timeout":
