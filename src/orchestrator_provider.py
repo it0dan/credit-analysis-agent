@@ -71,7 +71,35 @@ if __name__ == "__main__":
     amount = 20000.0
     env_override = None
     
-    # Escaneia os argumentos para encontrar o objeto de contexto JSON do PromptFoo
+    # Tenta parsear argumentos CLI padrão (--scenario, --amount).
+    # Quando chamado pelo PromptFoo, os placeholders {{scenario}}/{{amount}} podem
+    # não ter sido substituídos; nesse caso ignoramos e usamos o JSON de contexto.
+    cli_scenario = None
+    cli_amount = None
+    cli_cpf = None
+    i = 1
+    while i < len(sys.argv):
+        arg = sys.argv[i]
+        if arg == "--scenario" and i + 1 < len(sys.argv):
+            cli_scenario = sys.argv[i + 1]
+            if "{{" not in cli_scenario:
+                scenario = cli_scenario
+            i += 2
+        elif arg == "--amount" and i + 1 < len(sys.argv):
+            cli_amount = sys.argv[i + 1]
+            try:
+                if "{{" not in cli_amount:
+                    amount = float(cli_amount)
+            except Exception:
+                pass
+            i += 2
+        elif arg == "--cpf" and i + 1 < len(sys.argv):
+            cli_cpf = sys.argv[i + 1]
+            i += 2
+        else:
+            i += 1
+    
+    # Escaneia os argumentos para encontrar o objeto de contexto JSON do PromptFoo (sobrescreve CLI)
     for arg in sys.argv:
         arg_clean = arg.strip()
         if arg_clean.startswith("{") and arg_clean.endswith("}"):
@@ -84,6 +112,10 @@ if __name__ == "__main__":
                     break
             except Exception as e:
                 pass
+    
+    # CPF mapeia para scenario se ainda não definido
+    if cli_cpf and scenario == "auto_approve" and amount == 20000.0:
+        scenario, amount, _ = map_vars({"cpf": cli_cpf})
 
     # Apply environment override if necessary
     original_map = os.environ.get("AI_GATEWAY_JWT_AUDIENCE_MAP")

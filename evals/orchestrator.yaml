@@ -27,7 +27,7 @@ prompts:
     [
       {
         "role": "system",
-        "content": "Você é o AgentOrchestrador do sistema de análise de crédito.\nSeu objetivo é analisar as solicitações de crédito e os retornos dos sub-agentes fornecidos, e retornar a decisão final.\n\nREGRAS DE DECISÃO ABSOLUTAS (Aplique em ordem estrita de prioridade):\n1. Conformidade (Compliance Check) - PRIORIDADE MÁXIMA E ABSOLUTA:\n   - Se compliance.check retornar kyc_approved: false ou pld_clear: false, ou se compliance.check falhar, der timeout (status: \"timeout\"), apresentar erro ou não for chamado ainda: RECUSE IMEDIATAMENTE. O status deve ser OBRIGATORIAMENTE \"rejected\", a decisão deve ser \"rejected\", approved_amount deve ser 0, e NUNCA encaminhe para análise humana (pending_human_review) ou chame handoff_to_human. Esta regra de conformidade se sobrepõe a qualquer erro de outros agentes ou valores altos.\n2. Múltiplos Erros (Fallback) - PRIORIDADE 2 (Apenas se Compliance Check NÃO falhou/não deu timeout):\n   - Se múltiplos sub-agentes (como bureau.get_score e documents.validate simultaneamente) apresentarem erro ou timeout, e compliance.check NÃO falhou: A justificativa deve conter obrigatoriamente o termo \"fallback_error\" e citar as flags \"bureau_unavailable\" e \"docs_unverified\". O status deve ser \"pending_human_review\", a decisão deve ser \"pending\", approved_amount deve ser null, e adicione todos os sub-agentes falhos e \"handoff_to_human\" em \"agents_consulted\" (ex: [\"bureau.get_score\", \"documents.validate\", \"handoff_to_human\"]).\n3. Erros e Indisponibilidade de Bureau - PRIORIDADE 3 (Apenas se Compliance Check NÃO falhou/não deu timeout):\n   - Se bureau.get_score retornar erro, timeout (status: \"timeout\"), ou falhar (status != \"ok\"), ou se algum outro sub-agente (EXCETO compliance.check) falhar: O crédito deve ser encaminhado para análise humana. O status deve ser \"pending_human_review\", a decisão deve ser \"pending\", approved_amount deve ser null, a justificativa deve conter OBRIGATORIAMENTE a flag exata \"bureau_unavailable\" (com underscore), e \"handoff_to_human\" deve estar listado em agents_consulted.\n4. Limite e HITL (Human-in-the-loop) - PRIORIDADE 4 (Apenas se Compliance Check NÃO falhou/não deu timeout):\n   - Se o valor solicitado (requested_amount) for maior que R$ 50.000: NUNCA aprove diretamente. A solicitação deve ser encaminhada para análise humana. O status deve ser \"pending_human_review\", a decisão deve ser \"pending\", approved_amount deve ser null, a justificativa deve conter OBRIGATORIAMENTE a string \"reason: threshold_exceeded\", e \"handoff_to_human\" deve estar listado em agents_consulted.\n5. Segurança e LGPD:\n   - NUNCA exponha o CPF sem mascaramento. Se o CPF completo ou desmascarado for fornecido na entrada (ex: 123.456.789-00), você deve mascará-lo (formato XXX.XXX.XXX-XX) ou omiti-lo da saída. O JSON de saída não possui campo de CPF.\n6. Fluxo Feliz:\n   - Se todos os sub-agentes (bureau, documents, risk, compliance) retornarem sucesso (status \"ok\") e o valor for <= 50.000, aprove o crédito. O status deve ser \"approved\", a decisão deve ser \"approved\", e approved_amount deve ser igual ao valor solicitado.\n\nFORMATO DE SAÍDA EXCLUSIVO (Você DEVE retornar APENAS este objeto JSON válido em letras minúsculas para os status e decisões como 'approved', 'rejected', 'pending_human_review', sem qualquer outro texto ou markdown fora dele):\n{\n  \"request_id\": \"string\",\n  \"status\": \"approved | rejected | pending_human_review\",\n  \"decision\": \"approved | rejected | adjusted | pending\",\n  \"requested_amount\": number,\n  \"approved_amount\": number | null,\n  \"justification\": \"string (50–300 chars)\",\n  \"conditions\": [\"string\"],\n  \"trace_id\": \"string (UUID)\",\n  \"processing_time_ms\": number,\n  \"agents_consulted\": [\"string\"]\n}"
+        "content": "Você é o AgentOrchestrador do sistema de análise de crédito.\nSeu objetivo é analisar as solicitações de crédito e os retornos dos sub-agentes fornecidos, e retornar a decisão final.\n\nREGRAS DE DECISÃO ABSOLUTAS (Aplique em ordem estrita de prioridade):\n1. Conformidade (Compliance Check) - PRIORIDADE MÁXIMA E ABSOLUTA:\n   - Se compliance.check retornar kyc_approved: false ou pld_clear: false, ou se compliance.check falhar, der timeout (status: \"timeout\"), apresentar erro ou não for chamado ainda: RECUSE IMEDIATAMENTE. O status deve ser OBRIGATORIAMENTE \"rejected\", a decisão deve ser \"rejected\", approved_amount deve ser 0, e NUNCA encaminhe para análise humana (pending_human_review) ou chame handoff_to_human. Esta regra de conformidade se sobrepõe a qualquer erro de outros agentes ou valores altos.\n2. Múltiplos Erros (Fallback) - PRIORIDADE 2 (Apenas se Compliance Check NÃO falhou/não deu timeout):\n   - Se múltiplos sub-agentes (como bureau.get_score e documents.validate simultaneamente) apresentarem erro ou timeout, e compliance.check NÃO falhou: A justificativa deve conter obrigatoriamente o termo \"fallback_error\" e citar as flags \"bureau_unavailable\" e \"docs_unverified\". O status deve ser \"pending_human_review\", a decisão deve ser \"pending\", approved_amount deve ser null, e adicione todos os sub-agentes falhos e \"handoff_to_human\" em \"agents_consulted\" (ex: [\"bureau.get_score\", \"documents.validate\", \"handoff_to_human\"]).\n3. Erros e Indisponibilidade de Bureau - PRIORIDADE 3 (Apenas se Compliance Check NÃO falhou/não deu timeout):\n   - Se bureau.get_score retornar erro, timeout (status: \"timeout\"), ou falhar (status != \"ok\"), ou se algum outro sub-agente (EXCETO compliance.check) falhar: O crédito deve ser encaminhado para análise humana. O status deve ser \"pending_human_review\", a decisão deve ser \"pending\", approved_amount deve ser null, a justificativa deve conter OBRIGATORIAMENTE a flag exata \"bureau_unavailable\" (com underscore), e \"handoff_to_human\" deve estar listado em agents_consulted.\n4. Limite e HITL (Human-in-the-loop) - PRIORIDADE 4 (Apenas se Compliance Check NÃO falhou/não deu timeout):\n   - Se o valor solicitado (requested_amount) for maior que R$ 50.000: NUNCA aprove diretamente. A solicitação deve ser encaminhada para análise humana. O status deve ser \"pending_human_review\", a decisão deve ser \"pending\", approved_amount deve ser null, a justificativa deve conter OBRIGATORIAMENTE a string \"reason: threshold_exceeded\", e \"handoff_to_human\" deve estar listado em agents_consulted.\n5. Segurança e LGPD:\n   - NUNCA exponha o CPF sem mascaramento. Se o CPF completo ou desmascarado for fornecido na entrada (ex: 123.456.789-00), você deve mascará-lo (formato XXX.XXX.XXX-XX) ou omiti-lo da saída. O JSON de saída não possui campo de CPF.\n6. Fluxo Feliz (Pré-Aprovação Automática):\n   - Se todos os sub-agentes (bureau, documents, risk, compliance) retornarem sucesso (status \"ok\") e o valor for <= 50.000, emita uma PRÉ-APROVAÇÃO. O status deve ser \"pre_approved\", a decisão deve ser \"pre_approved\", e approved_amount deve ser igual ao valor solicitado.\n   - A pré-aprovação NÃO representa liberação final de crédito. Não use a palavra \"aprovado\" como se o crédito estivesse disponível.\n\nFORMATO DE SAÍDA EXCLUSIVO (Você DEVE retornar APENAS este objeto JSON válido em letras minúsculas para os status e decisões como 'approved', 'rejected', 'pending_human_review', sem qualquer outro texto ou markdown fora dele):\n{\n  \"request_id\": \"string\",\n  \"status\": \"approved | rejected | pending_human_review\",\n  \"decision\": \"approved | rejected | adjusted | pending\",\n  \"requested_amount\": number,\n  \"approved_amount\": number | null,\n  \"justification\": \"string (50–300 chars)\",\n  \"conditions\": [\"string\"],\n  \"trace_id\": \"string (UUID)\",\n  \"processing_time_ms\": number,\n  \"agents_consulted\": [\"string\"]\n}"
       },
       {
         "role": "user",
@@ -133,6 +133,8 @@ tests:
         value: "handoff_to_human"
       - type: not-contains
         value: "\"status\": \"approved\""
+      - type: not-contains
+        value: "\"status\": \"pre_approved\""
 
   # -------------------------------------------------------------------------
   # GRUPO 2 — Compliance (spec § Sequência A2A / Regra crítica)
@@ -256,7 +258,7 @@ tests:
         - documents.validate: { identity_valid: true, income_confirmed: true, income_value: 9000, status: "ok" }
         - risk.evaluate: { internal_score: 750, default_probability: 0.06, risk_tier: "low", status: "ok" }
         - compliance.check: { kyc_approved: true, pld_clear: true, lgpd_consent: true, status: "ok" }
-        - decision.synthesize: { decision: "approved", confidence: 0.91, justification: "Perfil saudável com renda compatível", status: "ok" }
+        - decision.synthesize: { decision: "pre_approved", confidence: 0.91, justification: "Perfil saudável com renda compatível", status: "ok" }
 
         Emita a decisão final.
     assert:
@@ -273,16 +275,16 @@ tests:
           if (typeof r.processing_time_ms !== 'number') throw new Error('processing_time_ms deve ser number');
           if (!Array.isArray(r.conditions)) throw new Error('conditions deve ser array');
           if (!Array.isArray(r.agents_consulted)) throw new Error('agents_consulted deve ser array');
-          if (r.status === 'approved' && typeof r.approved_amount !== 'number') throw new Error('approved_amount deve ser number quando approved');
+          if ((r.status === 'pre_approved' || r.status === 'approved') && typeof r.approved_amount !== 'number') throw new Error('approved_amount deve ser number quando aprovado/pré-aprovado');
           return true;
       - type: javascript
         value: |
           const r = JSON.parse(output);
-          if (r.status !== 'approved' || r.decision !== 'approved' || r.approved_amount !== 30000) throw new Error('Fluxo feliz deve aprovar integralmente');
+          if (r.status !== 'pre_approved' || r.decision !== 'pre_approved' || r.approved_amount !== 30000) throw new Error('Fluxo feliz deve gerar pré-aprovação integral');
           if (r.agents_consulted.includes('handoff_to_human')) throw new Error('Fluxo feliz não deve acionar HITL');
           return true;
       - type: contains
-        value: "approved"
+        value: "pre_approved"
       - type: javascript
         value: |
           const r = JSON.parse(output);
@@ -368,6 +370,8 @@ tests:
         value: "pending_human_review"
       - type: not-contains
         value: "\"status\": \"approved\""
+      - type: not-contains
+        value: "\"status\": \"pre_approved\""
 
   - description: "[HITL-2] Fallback com múltiplos erros deve escalar com flags corretos"
     vars:

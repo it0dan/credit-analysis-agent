@@ -70,7 +70,7 @@ A arquitetura v2 implementa os padrões modernos de sistemas agênticos corporat
 ### 1. Contexto & Memória de Longo Prazo (LTM)
 * **Isolate (Isolamento)**: Cada turno é uma requisição HTTP REST independente e sem estado para o Gateway.
 * **Memória Episódica Persistente**: Persistida em `episodic_memory.json` indexada por CPF. Armazena os resultados das análises passadas, garantindo que o agente reconheça recorrências de fraude ou decisões prévias em execuções subsequentes.
-* **Ofuscação Semântica contra Premature Stopping**: Pequenos LLMs sofrem de viés de parada antecipada ao ler palavras como `approved` ou `rejected` no histórico. Na memória e contexto, mapeamos o status para códigos neutros (`CODE_A` para aprovado, `CODE_R` para rejeitado, `CODE_P` para pendente) e removemos as justificativas textuais complexas do contexto operacional ativo.
+* **Ofuscação Semântica contra Premature Stopping**: Pequenos LLMs sofrem de viés de parada antecipada ao ler palavras como `approved` ou `rejected` no histórico. Na memória e contexto, mapeamos o status para códigos neutros (`CODE_PA` para pré-aprovado, `CODE_A` para aprovado final, `CODE_R` para rejeitado, `CODE_P` para pendente) e removemos as justificativas textuais complexas do contexto operacional ativo.
 
 ### 2. Robustez do Loop & Auto-Reparação (Self-Healing)
 * **Simulação de Fallback de Tool-Calling**: Corrige o erro `MALFORMED_FUNCTION_CALL` quando o LLM retorna chamadas de ferramentas encapsuladas em blocos de código markdown (`default_api.execute_tool(...)` etc.) em vez de chamadas estruturadas puras.
@@ -93,7 +93,7 @@ A suite de testes cobre 5 fluxos fundamentais descritos em `evals/trajectory.yam
 
 | Cenário | Descrição e Comportamento Esperado | Sequência (Trajectory) Exigida |
 | :--- | :--- | :--- |
-| `auto_approve` | Solicitação ≤ R$ 50k, sem restrições. Aprovado automaticamente. | `bureau` ➔ `docs` ➔ `risk` ➔ `compliance` ➔ `decision` |
+| `auto_approve` | Solicitação ≤ R$ 50k, sem restrições. Pré-aprovado automaticamente (não é liberação final). | `bureau` ➔ `docs` ➔ `risk` ➔ `compliance` ➔ `decision` |
 | `hitl_required` | Solicitação > R$ 50k. Requer revisão humana obrigatória. | `bureau` ➔ `docs` ➔ `risk` ➔ `compliance` ➔ `decision` ➔ `handoff` |
 | `compliance_fail` | Falha nos testes de KYC/PLD. Negado imediatamente por Compliance. | `bureau` ➔ `docs` ➔ `risk` ➔ `compliance` ➔ **STOP** (sem decisão final) |
 | `bureau_error` | Erro crítico/indisponibilidade no Bureau. Encaminha para revisão humana direta. | `bureau` (falha) ➔ `handoff` ➔ **STOP** |
