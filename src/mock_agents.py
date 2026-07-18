@@ -65,9 +65,9 @@ SCENARIOS: dict[str, dict] = {
                        "risk_tier": "low", "status": "ok"},
         "compliance": {"kyc_approved": True, "pld_clear": True,
                        "lgpd_consent": True, "status": "ok"},
-        "decision":   {"decision": "approved", "confidence": 0.94,
+        "decision":   {"decision": "pre_approved", "confidence": 0.94,
                        "justification": "Score 780, renda R$8k confirmada, "
-                                        "risco baixo, compliance ok.",
+                                        "risco baixo, compliance ok. Pré-aprovado.",
                        "conditions": []},
     },
     "hitl_required": {

@@ -354,9 +354,14 @@ class ResumeHTTPHandler(BaseHTTPRequestHandler):
             # Aguarda um pequeno momento para que o request_id inicial seja impresso
             time.sleep(0.5)
             
+            initial_status = (
+                "hitl_required" if amount > 50000 else
+                "rejected" if scenario == "compliance_fail" else
+                "pre_approved"
+            )
             self.wfile.write(json.dumps({
                 "request_id": request_id,
-                "status": "hitl_required" if amount > 50000 else ("rejected" if scenario == "compliance_fail" else "approved"),
+                "status": initial_status,
                 "scenario": scenario
             }).encode('utf-8'))
             return

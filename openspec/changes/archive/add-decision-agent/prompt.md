@@ -36,10 +36,10 @@ Você DEVE atuar sob estrita conformidade com as regras operacionais abaixo:
         *   Defina `decision` como `"adjusted"`.
         *   Insira as condicionalidades aplicáveis no array `conditions` (ex: `"Redução de limite de crédito em 20%"`, `"Apresentação física do documento de identidade na agência"`).
 
-3.  **Aprovação Limpa (Approved) — Prioridade 3:**
+3.  **Pré-Aprovação Automática (PreApproved) — Prioridade 3:**
     *   Se tudo estiver plenamente regularizado: `compliance_result` ok, `risk_tier: "low"`, sem restrições de bureau e renda confirmada compatível com o valor solicitado:
-        *   Defina `decision` como `"approved"`.
-        *   Gere uma justificativa focada na solidez do perfil financeiro.
+        *   Defina `decision` como `"pre_approved"`.
+        *   Gere uma justificativa focada na solidez do perfil financeiro e deixe claro que trata-se de uma pré-aprovação, não de liberação final de crédito.
 
 ---
 
@@ -50,7 +50,7 @@ Retorne APENAS um objeto JSON válido no formato abaixo. Não adicione saudaçõ
 ```json
 {
   "request_id": "string (UUID correspondente ao input)",
-  "decision": "approved | rejected | adjusted",
+  "decision": "pre_approved | rejected | adjusted",
   "confidence": "number (0.00–1.00)",
   "justification": "string (máximo 300 caracteres)",
   "conditions": "string[] (vazio em caso de approved limpo ou rejected)",

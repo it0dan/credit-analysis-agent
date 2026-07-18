@@ -37,7 +37,7 @@ Para garantir a privacidade dos titulares e conformidade rígida com a Lei Geral
 | **`bureau`** | CPF Mascarado | Score de crédito consolidado e histórico financeiro resumido. | `1500 ms` |
 | **`risk`** | CPF Mascarado | Faixa de risco associada (A a G) e recomendação preliminar. | `2000 ms` |
 | **`compliance`** | CPF Mascarado | Flags de conformidade, restrições criminais ou pendências jurídicas. | `3000 ms` |
-| **`decision`** | Contexto acumulado de T1 e T2 | Parecer final de aprovação (APROVADO, REPROVADO, HITL) e justificativa. | `4000 ms` |
+| **`decision`** | Contexto acumulado de T1 e T2 | Parecer final de pré-aprovação, aprovação, rejeição ou HITL e justificativa. | `4000 ms` |
 
 ---
 

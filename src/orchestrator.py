@@ -154,9 +154,10 @@ REGRA 5 — Segurança e LGPD
   • NUNCA exponha CPF sem mascaramento (formato XXX.XXX.XXX-XX).
   • O JSON de saída não contém campo cpf.
 
-REGRA 6 — Fluxo feliz (aprovação automática)
+REGRA 6 — Fluxo feliz (pré-aprovação automática)
   Se você já tiver chamado e obtido retorno de TODOS os sub-agentes (bureau_get_score, documents_validate, risk_evaluate, compliance_check E decision_synthesize), todos tiverem retornado status="ok" e requested_amount <= 50000:
-    • status="approved", decision="approved", approved_amount=requested_amount.
+    • status="pre_approved", decision="pre_approved", approved_amount=requested_amount.
+    • Esta é uma PRÉ-APROVAÇÃO, não uma liberação final de crédito. A proposta ainda pode passar por análise humana ou validações documentais antes da liberação.
 
 REGRA 7 — Proibição Absoluta de Parada Antecipada e Atalhos
   • Você está TERMINANTEMENTE PROIBIDO de parar a execução do loop de forma precoce com base em estimativas de valor ou resultados parciais.
@@ -176,6 +177,7 @@ ANTI-EXEMPLOS (o que NUNCA fazer)
 ✗ Inventar score após bureau retornar erro ("assumindo score 700...").
 ✗ Encaminhar para humano quando compliance reprovar (regra 1 é absoluta).
 ✗ Aprovar diretamente valor > R$50.000 sem handoff_to_human.
+✗ Tratar pré-aprovação automática (pre_approved) como liberação final de crédito.
 ✗ Expor CPF completo em qualquer campo da resposta.
 ✗ Retornar texto corrido ou explicações fora do JSON válido na resposta final.
 
@@ -188,8 +190,8 @@ sem texto fora dele, sem markdown:
 
 {
   "request_id": "string",
-  "status": "approved | rejected | pending_human_review",
-  "decision": "approved | rejected | adjusted | pending",
+  "status": "pre_approved | approved | rejected | pending_human_review",
+  "decision": "pre_approved | approved | rejected | adjusted | pending",
   "requested_amount": number,
   "approved_amount": number | null,
   "justification": "string (50–300 chars)",
@@ -870,6 +872,7 @@ def run_orchestrator(scenario: str, amount: float, request_id: str = None) -> di
     agents  = MockAgents(scenario=scenario)
     client  = build_llm_client()
     finops  = FinOpsTracker()
+    compliance_reproved = False  # flag para short-circuit de compliance
 
     # Salva o registro inicial no SQLite para evitar violação de Foreign Key nos eventos
     db.save_analysis({
@@ -1086,6 +1089,26 @@ def run_orchestrator(scenario: str, amount: float, request_id: str = None) -> di
         for tc in msg.tool_calls:
             name = tc.function.name
             args = json.loads(tc.function.arguments)
+
+            # Guard: nunca executa decision_synthesize se compliance já reprovou.
+            # O LLM às vezes chama decision_synthesize por inércia mesmo com KYC/PLD negativo;
+            # esse guard impede o gasto desnecessário de tokens e mantém o short-circuit correto.
+            if name == "decision_synthesize" and compliance_reproved:
+                print("  [compliance-guard] decision_synthesize bloqueado: compliance reprovado.")
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "name": name,
+                    "content": json.dumps({"status": "error", "error": "not_applicable", "reason": "compliance_reproved"}, ensure_ascii=False)
+                })
+                trajectory_log.append({
+                    "turn": 4,
+                    "tool": name,
+                    "args": args,
+                    "result_ok": False,
+                    "trace_id": trace_id,
+                })
+                continue
 
             if name == "handoff_to_human":
                 # Executa o handoff de forma assíncrona (serialize_and_pause) e encerra o processo
@@ -1353,6 +1376,8 @@ def run_orchestrator(scenario: str, amount: float, request_id: str = None) -> di
                 agent_event["risk_tier"] = result["risk_tier"]
             if name == "compliance_check":
                 agent_event["kyc_approved"] = result.get("kyc_approved", False)
+                if not result.get("kyc_approved", True) or not result.get("pld_clear", True):
+                    compliance_reproved = True
             sse_stream.emit_event(request_id, agent_event)
             # Persistir no SQLite para replay
             db.save_event(request_id, agent_event)

@@ -26,9 +26,9 @@ tests:
           if (!trajectory) throw new Error("Trajetória não encontrada nos metadados");
           const tools = trajectory.map(t => t.tool);
 
-          // 1. O status e decisão devem ser aprovados
-          if (r.status !== "approved") throw new Error(`Status esperado "approved", recebido: ${r.status}`);
-          if (r.decision !== "approved") throw new Error(`Decisão esperada "approved", recebida: ${r.decision}`);
+          // 1. O status e decisão devem ser pré-aprovados (não aprovado final)
+          if (r.status !== "pre_approved") throw new Error(`Status esperado "pre_approved", recebido: ${r.status}`);
+          if (r.decision !== "pre_approved") throw new Error(`Decisão esperada "pre_approved", recebida: ${r.decision}`);
           if (r.approved_amount !== 20000) throw new Error(`approved_amount esperado 20000, recebido: ${r.approved_amount}`);
 
           // 2. A conformidade nunca deve ser pulada no fluxo feliz
