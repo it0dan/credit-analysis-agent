@@ -1,14 +1,35 @@
 # HANDOFF — Credit Analysis Agent
 
-Atualizado em 2026-07-13.
+Atualizado em 2026-07-18.
 
 ## Estado do repositório
 
 - Branch: `main`.
-- HEAD e `origin/main`: `abdd2f9` (`test(eval): stabilize orchestrator contract suite`).
+- HEAD e `origin/main`: `e8a6772` (`feat: introduz pré-aprovação como status final do fluxo automático`).
 - Alteração local de runtime preservada: `src/episodic_memory.json`.
 - Não incluir, restaurar ou apagar `src/episodic_memory.json` sem revisar seu conteúdo; ele foi alterado por execuções locais e não faz parte das entregas desta sessão.
 - Serviço HTTP ativo em `http://localhost:8086`.
+
+## Mudança de negócio — Pré-aprovação automática
+
+O fluxo automático de análise bem-sucedido passa a terminar em `pre_approved` (pré-aprovado), nunca em `approved`. O status `approved` agora é reservado para confirmação humana no HITL (`POST /resume` com `decision=approve`).
+
+### Entregas
+
+- `src/orchestrator.py`: system prompt ajustado para emitir `status="pre_approved"`/`decision="pre_approved"` quando todas as etapas forem bem-sucedidas e o valor solicitado for ≤ R$ 50.000.
+- Guarda que bloqueia `decision_synthesize` quando `compliance_check` reprova.
+- `src/mock_agents.py` e `src/decision_agent.py`: cenário `auto_approve` retorna `decision: "pre_approved"`.
+- `src/resume_endpoint.py`: `POST /analysis` retorna `status: "pre_approved"` no cenário de auto-aprovação.
+- `evals/trajectory.yaml` e `evals/orchestrator.yaml` ajustados para o novo status.
+- `README.md` e `AGENTS.md` atualizados com a distinção entre pré-aprovação e aprovação humana.
+- Artefatos OpenSpec criados em `openspec/changes/pre-approved-terminology/`.
+
+### Validação
+
+- `evals/trajectory.yaml`: 6/6 passando.
+- `evals/orchestrator.yaml`: não validado por falha de autenticação no Sensedia AI Gateway (`401 token header malformed`), não por regressão.
+- Teste unitário `test_sse_stream.py`: 5/5 passando.
+- Validação manual: `POST /analysis` com R$ 30.000 retorna `status: "pre_approved"` e o evento SSE `analysis_done` contém `status: "pre_approved"`, `decision: "pre_approved"`.
 
 ## Entregas concluídas
 
@@ -59,6 +80,7 @@ Atualizado em 2026-07-13.
 - `48b9d14 feat(db): add sqlite durable persistence`
 - `97ee86e feat(api): stream agent progress over SSE`
 - `abdd2f9 test(eval): stabilize orchestrator contract suite`
+- `e8a6772 feat: introduz pré-aprovação como status final do fluxo automático`
 
 ## Integração com o frontend
 
