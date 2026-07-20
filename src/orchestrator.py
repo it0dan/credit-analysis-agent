@@ -842,12 +842,13 @@ def build_llm_client() -> OpenAI:
 # O LLM dirige. O harness executa. Nenhuma regra de negócio no código Python.
 # ─────────────────────────────────────────────────────────────────────────────
 
-def run_orchestrator(scenario: str, amount: float, request_id: str = None) -> dict:
+def run_orchestrator(scenario: str, amount: float, request_id: str = None, applicant_masked_cpf: str = None, applicant_raw_cpf: str = None) -> dict:
     if not request_id:
         request_id = str(uuid.uuid4())[:8]
 
-    trace_id   = str(uuid.uuid4())
-    masked_cpf = "XXX.XXX.XXX-99"
+    trace_id      = str(uuid.uuid4())
+    masked_cpf    = applicant_masked_cpf or "XXX.XXX.XXX-99"
+    applicant_cpf = applicant_raw_cpf or masked_cpf
     start      = time.time()
 
     tracer = get_tracer("orchestrator")
@@ -1314,10 +1315,10 @@ def run_orchestrator(scenario: str, amount: float, request_id: str = None) -> di
             if name == "decision_synthesize" and "bureau_result" not in args:
                 print("  [compliance-guard] Reconstruindo argumentos aninhados para decision_synthesize...")
                 # Recupera do agents com base no cenario atual
-                args["bureau_result"] = agents.bureau_get_score(applicant_masked_cpf="XXX.XXX.XXX-99", request_id=args.get("request_id") or request_id, trace_id=trace_id)
+                args["bureau_result"] = agents.bureau_get_score(applicant_masked_cpf=masked_cpf, request_id=args.get("request_id") or request_id, trace_id=trace_id)
                 args["documents_result"] = agents.documents_validate(document_urls=[], applicant_name="João da Silva", request_id=args.get("request_id") or request_id, trace_id=trace_id)
                 args["risk_result"] = agents.risk_evaluate(bureau_score=780, income_value=8000, requested_amount=amount, request_id=args.get("request_id") or request_id, trace_id=trace_id)
-                args["compliance_result"] = agents.compliance_check(applicant_masked_cpf="XXX.XXX.XXX-99", request_id=args.get("request_id") or request_id, trace_id=trace_id)
+                args["compliance_result"] = agents.compliance_check(applicant_masked_cpf=masked_cpf, request_id=args.get("request_id") or request_id, trace_id=trace_id)
                 args["requested_amount"] = args.get("requested_amount") or amount
 
             # Transition spans:

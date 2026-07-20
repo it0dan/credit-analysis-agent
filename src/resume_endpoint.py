@@ -297,11 +297,20 @@ class ResumeHTTPHandler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"error": "bad_request", "message": "JSON inválido"}).encode('utf-8'))
                 return
                 
-            cpf = req_data.get("cpf", "XXX.XXX.XXX-99")
+            cpf_raw = req_data.get("cpf", "XXX.XXX.XXX-99")
             amount = float(req_data.get("amount", 20000.0))
             
-            # Map dynamic scenario
-            if "111" in cpf or "222" in cpf:
+            # Mask CPF: keep only last 2 digits, mask the rest as X
+            def mask_cpf(raw: str) -> str:
+                digits = raw.replace(".", "").replace("-", "").replace(" ", "")
+                if len(digits) != 11:
+                    return "XXX.XXX.XXX-XX"
+                return f"XXX.XXX.{digits[6:9]}-{digits[9:]}"
+            
+            cpf_masked = mask_cpf(cpf_raw)
+            
+            # Map dynamic scenario (check raw digits for compliance triggers)
+            if "111" in cpf_raw or "222" in cpf_raw:
                 scenario = "compliance_fail"
             elif amount <= 50000:
                 scenario = "auto_approve"
@@ -323,17 +332,19 @@ class ResumeHTTPHandler(BaseHTTPRequestHandler):
             from orchestrator import run_orchestrator
             
             class OrchestratorThread(threading.Thread):
-                def __init__(self, scenario, amount, request_id):
+                def __init__(self, scenario, amount, request_id, cpf_raw, cpf_masked):
                     super().__init__()
                     self.scenario = scenario
                     self.amount = amount
                     self.request_id = request_id
+                    self.cpf_raw = cpf_raw
+                    self.cpf_masked = cpf_masked
                     self.result = None
 
                 def run(self):
                     print(f"  [api] Iniciando orquestrador em background para cenário '{self.scenario}' (R$ {self.amount}) com ID {self.request_id}...")
                     try:
-                        self.result = run_orchestrator(self.scenario, self.amount, request_id=self.request_id)
+                        self.result = run_orchestrator(self.scenario, self.amount, request_id=self.request_id, applicant_masked_cpf=self.cpf_masked, applicant_raw_cpf=self.cpf_raw)
                     except Exception as e:
                         print(f"  [api] Erro na thread do orquestrador: {e}")
                         error_event = {
@@ -347,7 +358,7 @@ class ResumeHTTPHandler(BaseHTTPRequestHandler):
                         return
                     print(f"  [api] Orquestrador concluído. ID: {self.result.get('request_id')} | Status: {self.result.get('status')}")
 
-            thread = OrchestratorThread(scenario, amount, request_id)
+            thread = OrchestratorThread(scenario, amount, request_id, cpf_raw, cpf_masked)
             thread.daemon = True
             thread.start()
             
