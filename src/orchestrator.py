@@ -627,7 +627,7 @@ def resume_analysis(state: dict, decision_input: dict) -> dict:
 # Puro roteador: nenhuma lógica de negócio aqui.
 # ─────────────────────────────────────────────────────────────────────────────
 
-def execute_tool(name: str, args: dict, agents: MockAgents, trace_id: str = None) -> dict:
+def execute_tool(name: str, args: dict, agents: MockAgents, trace_id: str = None, masked_cpf: str = None) -> dict:
     """
     Roteia function_call do LLM para mock local ou MCP do Gateway.
     handoff_to_human: mock local no walking skeleton → MCP real na v2.
@@ -651,8 +651,10 @@ def execute_tool(name: str, args: dict, agents: MockAgents, trace_id: str = None
         if not tr_id:
             tr_id = str(uuid.uuid4())
             
+        # Força CPF mascarado — o compliance-agent exige formato XXX.XXX.XXX-XX
+        compliance_cpf = masked_cpf if masked_cpf and masked_cpf != "XXX.XXX.XXX-XX" else args.get("applicant_masked_cpf", masked_cpf)
         payload = {
-            "applicant_masked_cpf": args.get("applicant_masked_cpf"),
+            "applicant_masked_cpf": compliance_cpf,
             "request_id": req_id,
             "trace_id": tr_id
         }
@@ -842,13 +844,13 @@ def build_llm_client() -> OpenAI:
 # O LLM dirige. O harness executa. Nenhuma regra de negócio no código Python.
 # ─────────────────────────────────────────────────────────────────────────────
 
-def run_orchestrator(scenario: str, amount: float, request_id: str = None, applicant_masked_cpf: str = None, applicant_raw_cpf: str = None) -> dict:
+def run_orchestrator(scenario: str, amount: float, request_id: str = None, applicant_cpf: str = None, applicant_masked_cpf: str = None) -> dict:
     if not request_id:
         request_id = str(uuid.uuid4())[:8]
 
-    trace_id      = str(uuid.uuid4())
-    masked_cpf    = applicant_masked_cpf or "XXX.XXX.XXX-99"
-    applicant_cpf = applicant_raw_cpf or masked_cpf
+    trace_id          = str(uuid.uuid4())
+    masked_cpf        = applicant_masked_cpf or "XXX.XXX.XXX-XX"
+    applicant_cpf_raw = applicant_cpf or masked_cpf
     start      = time.time()
 
     tracer = get_tracer("orchestrator")
@@ -933,7 +935,7 @@ def run_orchestrator(scenario: str, amount: float, request_id: str = None, appli
         f"Analise a seguinte solicitação de crédito:\n\n"
         f"request_id: {request_id}\n"
         f"trace_id: {trace_id}\n"
-        f"applicant_masked_cpf: {masked_cpf}\n"
+        f"applicant_cpf: {applicant_cpf_raw}\n"
         f"applicant_name: João da Silva\n"
         f"requested_amount: {amount}\n"
         f"document_urls: "
@@ -1359,7 +1361,7 @@ def run_orchestrator(scenario: str, amount: float, request_id: str = None, appli
 
             print(f"  [tool] {name}({json.dumps(args, ensure_ascii=False)})")
             tool_start_time = time.time()
-            result = execute_tool(name, args, agents, trace_id=trace_id)
+            result = execute_tool(name, args, agents, trace_id=trace_id, masked_cpf=masked_cpf)
             tool_latency_ms = int((time.time() - tool_start_time) * 1000)
 
             agent_event = {
