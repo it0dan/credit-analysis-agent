@@ -297,10 +297,10 @@ class ResumeHTTPHandler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"error": "bad_request", "message": "JSON inválido"}).encode('utf-8'))
                 return
                 
-            cpf_raw = req_data.get("cpf", "XXX.XXX.XXX-99")
+            cpf_raw = req_data.get("cpf", "")
             amount = float(req_data.get("amount", 20000.0))
             
-            # Mask CPF: keep only last 2 digits, mask the rest as X
+            # Gera CPF mascarado para o compliance-agent (exige formato XXX.XXX.XXX-XX)
             def mask_cpf(raw: str) -> str:
                 digits = raw.replace(".", "").replace("-", "").replace(" ", "")
                 if len(digits) != 11:
@@ -309,7 +309,7 @@ class ResumeHTTPHandler(BaseHTTPRequestHandler):
             
             cpf_masked = mask_cpf(cpf_raw)
             
-            # Map dynamic scenario (check raw digits for compliance triggers)
+            # Map dynamic scenario
             if "111" in cpf_raw or "222" in cpf_raw:
                 scenario = "compliance_fail"
             elif amount <= 50000:
@@ -344,7 +344,7 @@ class ResumeHTTPHandler(BaseHTTPRequestHandler):
                 def run(self):
                     print(f"  [api] Iniciando orquestrador em background para cenário '{self.scenario}' (R$ {self.amount}) com ID {self.request_id}...")
                     try:
-                        self.result = run_orchestrator(self.scenario, self.amount, request_id=self.request_id, applicant_masked_cpf=self.cpf_masked, applicant_raw_cpf=self.cpf_raw)
+                        self.result = run_orchestrator(self.scenario, self.amount, request_id=self.request_id, applicant_cpf=self.cpf_raw, applicant_masked_cpf=self.cpf_masked)
                     except Exception as e:
                         print(f"  [api] Erro na thread do orquestrador: {e}")
                         error_event = {
