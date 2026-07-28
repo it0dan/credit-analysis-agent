@@ -10,9 +10,9 @@ Toda e qualquer comunicação inter-agentes ou requisições direcionadas às ca
 ## 2. Loop Agêntico (Orquestração por Turnos)
 A execução do fluxo de análise de crédito é estruturada em uma sequência determinística de três turnos cognitivos híbridos (paralelo-serial). Um turno subsequente somente será iniciado após o encerramento e consolidação de todas as respostas do turno anterior:
 
-1. **Turno 1 (T1) — Paralelo:** Execução simultânea das análises dos agentes `bureau` e `risk`. O objetivo é obter rapidamente a pontuação cadastral externa e realizar a modelagem prévia de risco financeiro.
-2. **Turno 2 (T2) — Paralelo:** Execução do agente `compliance`. Este turno é isolado e dedicado a verificações profundas de segurança, conformidade legal e políticas corporativas de prevenção à lavagem de dinheiro (PLD) e financiamento ao terrorismo (FTP).
-3. **Turno 3 (T3) — Serial:** Execução do agente `decision`. Este agente consome as saídas estruturadas geradas em T1 e T2 para consolidar o parecer técnico e proferir a resposta definitiva da proposta de crédito.
+1. **Turno 1 (T1) — Paralelo:** Execução simultânea dos sub-agentes `bureau` (`bureau_get_score`) e `documents` (`documents_validate`). O objetivo é obter a pontuação cadastral externa e realizar a verificação de integridade documental de forma concorrente e independente.
+2. **Turno 2 (T2) — Paralelo:** Execução dos sub-agentes `risk` (`risk_evaluate`) e `compliance` (`compliance_check`). Este turno consome os insumos consolidados em T1 para modelar o risco financeiro e efetuar as validações regulatórias de KYC, PLD/COAF e LGPD.
+3. **Turno 3 (T3) — Serial:** Execução do agente `decision` (`decision_synthesize`). Este agente consome as saídas estruturadas de T1 e T2 para consolidar o parecer de crédito (pré-aprovação ou rejeição) ou acionar o transbordo humano (`handoff_to_human`).
 
 ### Mecanismo de Short-circuit
 Para otimizar custos e mitigar riscos operacionais, o sistema implementa um fluxo de desvio rápido (*short-circuit*). Caso qualquer agente em T1 ou T2 identifique uma falha impeditiva crítica ou suspeita severa de fraude, a execução dos turnos seguintes é interrompida imediatamente. Um processo de intervenção humana (**HITL - Human-In-The-Loop**) é disparado de forma instantânea para avaliação manual do caso.
