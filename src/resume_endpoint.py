@@ -332,6 +332,8 @@ class ResumeHTTPHandler(BaseHTTPRequestHandler):
             from orchestrator import run_orchestrator
             
             class OrchestratorThread(threading.Thread):
+                ORCHESTRATOR_TIMEOUT = 120  # segundos máximos para uma análise
+
                 def __init__(self, scenario, amount, request_id, cpf_raw, cpf_masked):
                     super().__init__()
                     self.scenario = scenario
@@ -340,6 +342,7 @@ class ResumeHTTPHandler(BaseHTTPRequestHandler):
                     self.cpf_raw = cpf_raw
                     self.cpf_masked = cpf_masked
                     self.result = None
+                    self._finished = threading.Event()
 
                 def run(self):
                     print(f"  [api] Iniciando orquestrador em background para cenário '{self.scenario}' (R$ {self.amount}) com ID {self.request_id}...")
@@ -350,17 +353,48 @@ class ResumeHTTPHandler(BaseHTTPRequestHandler):
                         error_event = {
                             "type": "analysis_error",
                             "request_id": self.request_id,
-                            "error": "analysis_processing_failed"
+                            "error": "analysis_processing_failed",
+                            "details": str(e),
                         }
-                        sse_stream.emit_event(self.request_id, error_event)
-                        db.save_event(self.request_id, error_event)
-                        sse_stream.close_channel(self.request_id)
-                        return
-                    print(f"  [api] Orquestrador concluído. ID: {self.result.get('request_id')} | Status: {self.result.get('status')}")
+                        try:
+                            sse_stream.emit_event(self.request_id, error_event)
+                            db.save_event(self.request_id, error_event)
+                        except Exception:
+                            pass
+                    finally:
+                        try:
+                            sse_stream.close_channel(self.request_id)
+                        except Exception:
+                            pass
+                        self._finished.set()
+                    print(f"  [api] Orquestrador concluído. ID: {self.result.get('request_id') if self.result else 'N/A'} | Status: {self.result.get('status') if self.result else 'N/A'}")
 
             thread = OrchestratorThread(scenario, amount, request_id, cpf_raw, cpf_masked)
             thread.daemon = True
             thread.start()
+
+            # Watchdog: garante que a thread não trave para sempre
+            def _watchdog(thread_obj, req_id):
+                if not thread_obj._finished.wait(timeout=OrchestratorThread.ORCHESTRATOR_TIMEOUT):
+                    print(f"  [api] WATCHDOG: orquestrador {req_id} excedeu {OrchestratorThread.ORCHESTRATOR_TIMEOUT}s. Forçando finalização.")
+                    timeout_event = {
+                        "type": "analysis_error",
+                        "request_id": req_id,
+                        "error": "analysis_timeout",
+                        "details": f"Orquestrador excedeu o limite de {OrchestratorThread.ORCHESTRATOR_TIMEOUT}s",
+                    }
+                    try:
+                        sse_stream.emit_event(req_id, timeout_event)
+                        db.save_event(req_id, timeout_event)
+                    except Exception:
+                        pass
+                    try:
+                        sse_stream.close_channel(req_id)
+                    except Exception:
+                        pass
+
+            watchdog = threading.Thread(target=_watchdog, args=(thread, request_id), daemon=True)
+            watchdog.start()
             
             # Aguarda um pequeno momento para que o request_id inicial seja impresso
             time.sleep(0.5)

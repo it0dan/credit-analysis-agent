@@ -9,7 +9,7 @@
 
 ## Contexto
 
-Como parte da evolução da arquitetura v2 para a v3 do sistema de análise de crédito, o `compliance_agent` (AgentCompliance) está sendo extraído para um microsserviço independente, com repositório, ciclo de vida e deploy separados.
+Como parte da evolução da arquitetura do sistema de análise de crédito, o `compliance_agent` (AgentCompliance) foi extraído para um serviço A2A independente, com repositório, ciclo de vida e deploy separados.
 
 **Motivação Técnica:** O domínio de compliance regulatório (KYC, PLD/COAF, consentimento LGPD) é uma capacidade organizacional crítica e transversal. Outros sistemas internos da instituição (como onboarding de clientes, contas, seguros e recuperação de crédito) precisam consumir essas mesmas validações regulatórias sem herdar acoplamento com o sistema de análise de crédito. 
 

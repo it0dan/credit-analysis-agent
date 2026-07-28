@@ -3,16 +3,32 @@ mock_agents.py
 Sub-agentes simulados como funções locais para o walking skeleton.
 
 Cada função representa um sub-agente e retorna dados fixos por cenário.
-Na v2, cada função será substituída por uma chamada A2A real ao sub-agente.
+Em evoluções futuras, cada função será substituída por uma chamada A2A/MCP real ao sub-agente.
 
 Rastreabilidade:
   spec.md § Sequência de Delegação A2A (inputs/outputs por etapa)
 """
 
 import json
+import os
 import uuid
 from typing import Any
 from gateway_auth import gateway_auth
+
+
+def _should_skip_gateway_auth() -> bool:
+    """Retorna True se o ambiente não tiver as credenciais do Gateway configuradas (ex: dev local)."""
+    return not os.environ.get("AI_GATEWAY_CLIENT_ID") or not os.environ.get("AI_GATEWAY_CLIENT_SECRET")
+
+
+def _safe_get_agent_token(agent_name: str) -> str | None:
+    """Obtém token do agente, mas retorna None silenciosamente se o Gateway não estiver configurado."""
+    if _should_skip_gateway_auth():
+        return None
+    try:
+        return gateway_auth.get_agent_token(agent_name)
+    except Exception:
+        return None
 
 
 def _normalize_dict(d: Any) -> Any:
@@ -118,7 +134,7 @@ SCENARIOS: dict[str, dict] = {
 class MockAgents:
     """
     Sub-agentes simulados como funções locais.
-    Substitua cada método por uma chamada A2A real na v2.
+    Substitua cada método por uma chamada A2A/MCP real em produção.
     """
 
     def __init__(self, scenario: str = "auto_approve", bureau_attempts: list[dict] = None):
@@ -135,7 +151,7 @@ class MockAgents:
     # [ORIGEM: spec.md § Etapa 1 — bureau.get_score]
     def bureau_get_score(self, applicant_masked_cpf: str,
                          request_id: str, trace_id: str = None) -> dict[str, Any]:
-        token = gateway_auth.get_agent_token("bureau-agent")
+        _safe_get_agent_token("bureau-agent")
         if self._bureau_attempts is not None and self._bureau_call_count < len(self._bureau_attempts):
             result = dict(self._bureau_attempts[self._bureau_call_count])
             self._bureau_call_count += 1
@@ -153,7 +169,7 @@ class MockAgents:
     def documents_validate(self, document_urls: list[str],
                             applicant_name: str,
                             request_id: str, trace_id: str = None) -> dict[str, Any]:
-        token = gateway_auth.get_agent_token("documents-agent")
+        _safe_get_agent_token("documents-agent")
         if self._data.get("documents") is None:
             return _normalize_dict({"status": "error", "error": "not_applicable",
                     "request_id": request_id, "trace_id": trace_id or request_id})
@@ -166,7 +182,7 @@ class MockAgents:
     def risk_evaluate(self, bureau_score: int, income_value: float,
                       requested_amount: float,
                       request_id: str, trace_id: str = None) -> dict[str, Any]:
-        token = gateway_auth.get_agent_token("risk-agent")
+        _safe_get_agent_token("risk-agent")
         if self._data.get("risk") is None:
             return _normalize_dict({"status": "error", "error": "not_applicable",
                     "request_id": request_id, "trace_id": trace_id or request_id})
@@ -178,7 +194,7 @@ class MockAgents:
     # [ORIGEM: spec.md § Etapa 4 — compliance.check]
     def compliance_check(self, applicant_masked_cpf: str,
                           request_id: str, trace_id: str = None) -> dict[str, Any]:
-        token = gateway_auth.get_agent_token("compliance-agent")
+        _safe_get_agent_token("compliance-agent")
         if applicant_masked_cpf:
             if "111" in applicant_masked_cpf:
                 return _normalize_dict({
@@ -319,7 +335,7 @@ class MockAgents:
                             risk_result: dict, compliance_result: dict,
                             requested_amount: float,
                             request_id: str, trace_id: str = None) -> dict[str, Any]:
-        token = gateway_auth.get_agent_token("decision-agent")
+        _safe_get_agent_token("decision-agent")
         # Unpack / normalize enveloped inputs
         bureau_result = _normalize_dict(bureau_result)
         documents_result = _normalize_dict(documents_result)

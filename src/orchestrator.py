@@ -1361,7 +1361,21 @@ def run_orchestrator(scenario: str, amount: float, request_id: str = None, appli
 
             print(f"  [tool] {name}({json.dumps(args, ensure_ascii=False)})")
             tool_start_time = time.time()
-            result = execute_tool(name, args, agents, trace_id=trace_id, masked_cpf=masked_cpf)
+            try:
+                result = execute_tool(name, args, agents, trace_id=trace_id, masked_cpf=masked_cpf)
+            except Exception as e:
+                print(f"  [tool] ERRO em {name}: {e}")
+                error_event = {
+                    "type": "analysis_error",
+                    "request_id": request_id,
+                    "error": f"agent_{name}_failed",
+                    "details": str(e),
+                }
+                sse_stream.emit_event(request_id, error_event)
+                db.save_event(request_id, error_event)
+                sse_stream.close_channel(request_id)
+                # Re-lança para interromper o fluxo (capturado pelo OrchestratorThread)
+                raise
             tool_latency_ms = int((time.time() - tool_start_time) * 1000)
 
             agent_event = {

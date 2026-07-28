@@ -75,7 +75,7 @@ Para garantir a assertividade da tomada de decisão jurídica e de crédito, a i
 
 ### Suite existente (regressão)
 ```bash
-cd credit-analysis-mas/credit-analysis-demo
+cd credit-analysis-agent
 npx promptfoo eval --config evals/orchestrator.yaml   # 12/12 ✓
 npx promptfoo eval --config evals/trajectory.yaml     # T1/T2/T3 ✓
 ```
