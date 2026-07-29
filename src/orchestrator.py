@@ -1011,6 +1011,14 @@ def run_orchestrator(scenario: str, amount: float, request_id: str = None, appli
                 # para evitar paradas prematuras/atalhos do LLM.
                 tools_called = [t["tool"] for t in trajectory_log]
                 
+                # Garante que a mensagem do assistente seja registrada antes de qualquer mensagem do usuário
+                # injetada pelo compliance-guard, mantendo a sequência válida da API OpenAI (tool -> assistant -> user).
+                if messages and messages[-1]["role"] == "tool":
+                    messages.append({
+                        "role": "assistant",
+                        "content": msg.content or ""
+                    })
+                
                 # Caso A: Bureau falhou e não chamou handoff_to_human
                 if "bureau_get_score" in tools_called and any(not t["result_ok"] for t in trajectory_log if t["tool"] == "bureau_get_score"):
                     if "handoff_to_human" not in tools_called:
