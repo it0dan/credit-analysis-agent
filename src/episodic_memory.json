@@ -2129,5 +2129,19 @@
       "finops_cost_brl": 0.001404,
       "timestamp": "2026-07-29T14:11:25Z"
     }
+  ],
+  "XXX.XXX.789-00": [
+    {
+      "request_id": "27bb60ad-1c6e-4707-b3ed-e0b3d5428727",
+      "cpf_masked": "XXX.XXX.789-00",
+      "status": "pre_approved",
+      "decision": "pre_approved",
+      "requested_amount": 25000,
+      "approved_amount": 25000,
+      "justification": "Score 780 sem restrições, identidade e renda (R$8.000) confirmadas, risco baixo (PD 4%) e compliance aprovado. Solicitação dentro do limite para pré-aprovação automática.",
+      "trace_id": "f283909d-caad-46fa-b508-3154c79eb2dd",
+      "finops_cost_brl": 0.001449,
+      "timestamp": "2026-07-29T14:48:32Z"
+    }
   ]
 }

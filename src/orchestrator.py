@@ -699,10 +699,37 @@ def execute_tool(name: str, args: dict, agents: MockAgents, trace_id: str = None
 
     if name in dispatch:
         import inspect
-        sig = inspect.signature(dispatch[name])
-        if "trace_id" in sig.parameters:
-            return dispatch[name](**args, trace_id=trace_id)
-        return dispatch[name](**args)
+        fn = dispatch[name]
+        sig = inspect.signature(fn)
+        call_kwargs = {}
+        for param_name, param in sig.parameters.items():
+            if param_name == "trace_id":
+                call_kwargs["trace_id"] = trace_id or args.get("trace_id", args.get("request_id"))
+            elif param_name == "applicant_masked_cpf":
+                call_kwargs["applicant_masked_cpf"] = masked_cpf or args.get("applicant_masked_cpf", "XXX.XXX.XXX-XX")
+            elif param_name in args:
+                call_kwargs[param_name] = args[param_name]
+            elif param.default != inspect.Parameter.empty:
+                call_kwargs[param_name] = param.default
+            else:
+                # Provedores de fallback para parâmetros posicionais obrigatórios
+                if param_name in ["bureau_score", "internal_score"]:
+                    call_kwargs[param_name] = args.get("bureau_score", 780)
+                elif param_name in ["income_value"]:
+                    call_kwargs[param_name] = args.get("income_value", 8000.0)
+                elif param_name in ["requested_amount", "amount"]:
+                    call_kwargs[param_name] = args.get("requested_amount", args.get("amount", 25000.0))
+                elif param_name in ["bureau_result", "documents_result", "risk_result", "compliance_result"]:
+                    call_kwargs[param_name] = args.get(param_name, {})
+                elif param_name == "request_id":
+                    call_kwargs[param_name] = args.get("request_id", str(uuid.uuid4()))
+                elif param_name == "document_urls":
+                    call_kwargs[param_name] = args.get("document_urls", [])
+                elif param_name == "applicant_name":
+                    call_kwargs[param_name] = args.get("applicant_name", "João da Silva")
+                else:
+                    call_kwargs[param_name] = None
+        return fn(**call_kwargs)
 
     if name == "handoff_to_human":
         # Walking skeleton: mock local.
