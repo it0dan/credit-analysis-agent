@@ -152,6 +152,8 @@ class MockAgents:
     def bureau_get_score(self, applicant_masked_cpf: str,
                          request_id: str, trace_id: str = None) -> dict[str, Any]:
         _safe_get_agent_token("bureau-agent")
+        import time
+        time.sleep(0.6)
         if self._bureau_attempts is not None and self._bureau_call_count < len(self._bureau_attempts):
             result = dict(self._bureau_attempts[self._bureau_call_count])
             self._bureau_call_count += 1
@@ -170,6 +172,8 @@ class MockAgents:
                             applicant_name: str,
                             request_id: str, trace_id: str = None) -> dict[str, Any]:
         _safe_get_agent_token("documents-agent")
+        import time
+        time.sleep(0.6)
         if self._data.get("documents") is None:
             return _normalize_dict({"status": "error", "error": "not_applicable",
                     "request_id": request_id, "trace_id": trace_id or request_id})
@@ -183,6 +187,8 @@ class MockAgents:
                       requested_amount: float,
                       request_id: str, trace_id: str = None) -> dict[str, Any]:
         _safe_get_agent_token("risk-agent")
+        import time
+        time.sleep(0.6)
         if self._data.get("risk") is None:
             return _normalize_dict({"status": "error", "error": "not_applicable",
                     "request_id": request_id, "trace_id": trace_id or request_id})
@@ -195,6 +201,8 @@ class MockAgents:
     def compliance_check(self, applicant_masked_cpf: str,
                           request_id: str, trace_id: str = None) -> dict[str, Any]:
         _safe_get_agent_token("compliance-agent")
+        import time
+        time.sleep(0.6)
         if applicant_masked_cpf:
             if "111" in applicant_masked_cpf:
                 return _normalize_dict({
@@ -336,6 +344,8 @@ class MockAgents:
                             requested_amount: float,
                             request_id: str, trace_id: str = None) -> dict[str, Any]:
         _safe_get_agent_token("decision-agent")
+        import time
+        time.sleep(0.6)
         # Unpack / normalize enveloped inputs
         bureau_result = _normalize_dict(bureau_result)
         documents_result = _normalize_dict(documents_result)
