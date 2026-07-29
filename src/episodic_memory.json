@@ -2115,5 +2115,19 @@
       "justification": "Score 780, renda R$8k confirmada, risco baixo, compliance ok.",
       "timestamp": "2026-06-14T14:07:56Z"
     }
+  ],
+  "XXX.XXX.XXX-XX": [
+    {
+      "request_id": "9dd25b3c",
+      "cpf_masked": "XXX.XXX.XXX-XX",
+      "status": "pre_approved",
+      "decision": "pre_approved",
+      "requested_amount": 20000,
+      "approved_amount": 20000,
+      "justification": "Score bureau 780 sem restrições, identidade e renda (R$ 8.000) confirmadas, risco baixo (PD 4%) e compliance aprovado (KYC/PLD/LGPD). Pré-aprovação para o valor solicitado.",
+      "trace_id": "fa945da3-e0d3-4cc7-9a7e-230540e6c40b",
+      "finops_cost_brl": 0.001404,
+      "timestamp": "2026-07-29T14:11:25Z"
+    }
   ]
 }

@@ -27,6 +27,12 @@ class GatewayAuth:
         self.agents_tokens_used: dict[str, str] = {}
         self.used_fallback_token: bool = False
 
+    def invalidate_token(self):
+        """Invalida o token em cache para forçar a geração de um novo token."""
+        self._token = None
+        self._expires_at = 0
+        self._cache.clear()
+
     def get_token(self) -> str:
         """
         Retorna o token padrão de compatibilidade.

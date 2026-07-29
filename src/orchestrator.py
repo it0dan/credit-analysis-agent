@@ -962,13 +962,28 @@ def run_orchestrator(scenario: str, amount: float, request_id: str = None, appli
     while turn < MAX_TURNS:
         turn += 1
         print(f"  [llm] Turno {turn}: chamando Gateway...")
+        print(f"  [debug-messages-full-{turn}]\n{json.dumps(messages, indent=2)}")
 
-        response = client.chat.completions.create(
-            model=MODEL,
-            messages=messages,
-            tools=TOOLS,
-            temperature=0,
-        )
+        try:
+            response = client.chat.completions.create(
+                model=MODEL,
+                messages=messages,
+                tools=TOOLS,
+                temperature=0,
+            )
+        except Exception as err:
+            if "401" in str(err) or "API key" in str(err):
+                print("  [auth-retry] Token 401 detectado. Invalidando token e obtendo novo client...")
+                gateway_auth.invalidate_token()
+                client = build_llm_client()
+                response = client.chat.completions.create(
+                    model=MODEL,
+                    messages=messages,
+                    tools=TOOLS,
+                    temperature=0,
+                )
+            else:
+                raise err
 
         finops.record(response.usage)
         finops.log()
@@ -977,6 +992,7 @@ def run_orchestrator(scenario: str, amount: float, request_id: str = None, appli
         msg    = choice.message
         finish = choice.finish_reason
         print(f"  [llm] Turno {turn} finish_reason={finish}")
+        print(f"  [debug-msg-dump] {json.dumps(msg.model_dump(), indent=2)}")
 
         # ── O LLM terminou: sem mais tool_calls ──
         if finish != "tool_calls" or not msg.tool_calls:
@@ -1078,51 +1094,26 @@ def run_orchestrator(scenario: str, amount: float, request_id: str = None, appli
                 break
 
         # ── O LLM quer chamar ferramentas ──
-        # Registra a mensagem do assistant com as tool_calls propostas
-        assistant_entry = {
-            "role":    "assistant",
-            "content": msg.content or "",
-            "tool_calls": [
-                {
-                    "id":   tc.id,
-                    "type": "function",
-                    "function": {
-                        "name":      tc.function.name,
-                        "arguments": tc.function.arguments,
-                    },
-                }
-                for tc in msg.tool_calls
-            ],
-        }
-        messages.append(assistant_entry)
+        # Sensedia AI Gateway / Gemini Proxy não suporta mensagens com role="tool" em chamadas stateless multi-turn (retorna erro 400).
+        # Para garantir 100% de compatibilidade, registramos a intenção do assistente como texto e os resultados como contexto no próximo turno do usuário.
+        called_tools_names = [tc.function.name for tc in msg.tool_calls]
+        messages.append({
+            "role": "assistant",
+            "content": f"Solicitei a execução das ferramentas: {', '.join(called_tools_names)}"
+        })
+
+        tool_results_list = []
 
         # Executa cada tool_call e adiciona o resultado ao histórico
         for tc in msg.tool_calls:
             name = tc.function.name
             args = json.loads(tc.function.arguments)
 
-            # Guard: nunca executa decision_synthesize se compliance já reprovou.
-            # O LLM às vezes chama decision_synthesize por inércia mesmo com KYC/PLD negativo;
-            # esse guard impede o gasto desnecessário de tokens e mantém o short-circuit correto.
             if name == "decision_synthesize" and compliance_reproved:
                 print("  [compliance-guard] decision_synthesize bloqueado: compliance reprovado.")
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc.id,
-                    "name": name,
-                    "content": json.dumps({"status": "error", "error": "not_applicable", "reason": "compliance_reproved"}, ensure_ascii=False)
-                })
-                trajectory_log.append({
-                    "turn": 4,
-                    "tool": name,
-                    "args": args,
-                    "result_ok": False,
-                    "trace_id": trace_id,
-                })
-                continue
-
-            if name == "handoff_to_human":
-                # Executa o handoff de forma assíncrona (serialize_and_pause) e encerra o processo
+                enveloped_result = {"status": "error", "error": "not_applicable", "reason": "compliance_reproved"}
+                result_ok = False
+            elif name == "handoff_to_human":
                 logical_turn = 2 if (any(t["tool"] == "bureau_get_score" and not t["result_ok"] for t in trajectory_log) or any(t["tool"] == "documents_validate" and not t["result_ok"] for t in trajectory_log)) else 5
                 trajectory_log.append({
                     "turn":      logical_turn,
@@ -1131,309 +1122,36 @@ def run_orchestrator(scenario: str, amount: float, request_id: str = None, appli
                     "result_ok": True,
                     "trace_id":  trace_id,
                 })
-                
-                bureau_res = None
-                risk_res = None
-                compliance_res = None
-                
-                for step in trajectory_log:
-                    if step["tool"] == "bureau_get_score":
-                        bureau_res = step.get("args")
-                    elif step["tool"] == "risk_evaluate":
-                        risk_res = step.get("args")
-                    elif step["tool"] == "compliance_check":
-                        compliance_res = step.get("args")
-                
-                if not bureau_res:
-                    bureau_res = agents.bureau_get_score(applicant_masked_cpf=masked_cpf, request_id=request_id, trace_id=trace_id)
-                if not risk_res:
-                    try:
-                        risk_res = agents.risk_evaluate(bureau_score=bureau_res.get("score", 0), income_value=8000, requested_amount=amount, request_id=request_id, trace_id=trace_id)
-                    except Exception:
-                        risk_res = {"status": "error", "error": "not_evaluated", "internal_score": 0, "default_probability": 1.0, "risk_tier": "high"}
-                if not compliance_res:
-                    try:
-                        compliance_res = agents.compliance_check(applicant_masked_cpf=masked_cpf, request_id=request_id, trace_id=trace_id)
-                    except Exception:
-                        compliance_res = {"kyc_approved": False, "pld_clear": False, "lgpd_consent": False, "status": "not_evaluated"}
-
-                bureau_data = {
-                    "score": bureau_res.get("score") if bureau_res.get("score") is not None else 0,
-                    "restrictions": bureau_res.get("restrictions") if bureau_res.get("restrictions") is not None else [],
-                    "status": bureau_res.get("status") or "ok"
+                print("  [hitl] Chamando handoff_to_human. Pausando execução e salvando estado...")
+                state_data = {
+                    "request_id":     request_id,
+                    "trace_id":       trace_id,
+                    "scenario":       scenario,
+                    "amount":         amount,
+                    "applicant_cpf":  applicant_cpf,
+                    "turn":           turn,
+                    "messages":       messages,
+                    "trajectory_log": trajectory_log,
                 }
-                risk_data = {
-                    "internal_score": risk_res.get("internal_score") if risk_res.get("internal_score") is not None else 0,
-                    "default_probability": risk_res.get("default_probability") if risk_res.get("default_probability") is not None else 1.0,
-                    "risk_tier": risk_res.get("risk_tier") if risk_res.get("risk_tier") in ["low", "medium", "high"] else "high",
-                    "status": risk_res.get("status") or "ok"
-                }
-                compliance_data = {
-                    "kyc_approved": bool(compliance_res.get("kyc_approved") if compliance_res.get("kyc_approved") is not None else True),
-                    "pld_clear": bool(compliance_res.get("pld_clear") if compliance_res.get("pld_clear") is not None else True),
-                    "lgpd_consent": bool(compliance_res.get("lgpd_consent") if compliance_res.get("lgpd_consent") is not None else True),
-                    "status": compliance_res.get("status") or "ok"
-                }
-                
-                if scenario in ["bureau_error", "multi_error"]:
-                    bureau_data["status"] = "error"
-                if scenario == "multi_error":
-                    compliance_data["kyc_approved"] = True
-                    compliance_data["pld_clear"] = True
-                    compliance_data["lgpd_consent"] = True
-                    compliance_data["status"] = "ok"
+                hitl_result = serialize_and_pause(request_id, state_data, reason=args.get("reason", "threshold_exceeded"))
+                hitl_result["trace_id"] = trace_id
+                hitl_result["request_id"] = request_id
 
-                import datetime
-                ttl = int(os.environ.get("HITL_TTL_SECONDS") or 86400)
-                created_at_dt = datetime.datetime.now(datetime.timezone.utc)
-                expires_at_dt = created_at_dt + datetime.timedelta(seconds=ttl)
-                
-                reason = args.get("reason", "threshold_exceeded")
-                
-                state_dict = {
-                    "request_id": request_id,
-                    "trace_id": trace_id,
-                    "cpf_masked": masked_cpf,
-                    "created_at": created_at_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    "expires_at": expires_at_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    "t1_results": {
-                        "bureau": bureau_data,
-                        "risk": risk_data
-                    },
-                    "t2_results": {
-                        "compliance": compliance_data
-                    },
-                    "hitl_reason": reason,
-                    "hitl_triggered_by": "orchestrator",
-                    "requested_amount": amount
-                }
-                root_span_context = root_span.get_span_context() if root_span else None
-                if root_span_context and root_span_context.is_valid:
-                    trace_id_hex = f"{root_span_context.trace_id:032x}"
-                    span_id_hex = f"{root_span_context.span_id:016x}"
-                    trace_flags_hex = f"{root_span_context.trace_flags:02x}"
-                    traceparent = f"00-{trace_id_hex}-{span_id_hex}-{trace_flags_hex}"
-                    span_id_str = span_id_hex
-                else:
-                    traceparent = f"00-{trace_id.replace('-', '')}-0000000000000000-01"
-                    span_id_str = "0000000000000000"
-
-                state_dict["traceparent"] = traceparent
-                
-                # End OTel spans
-                if span_t1:
-                    span_t1.set_attribute("cpf_masked", masked_cpf)
-                    span_t1.set_attribute("agents_called", [t["tool"] for t in trajectory_log])
-                    span_t1.set_attribute("hitl_triggered", True)
-                    span_t1.set_attribute("cost_brl", round(finops.estimated_cost_brl, 6))
-                    span_t1.end()
-                if span_t2:
-                    span_t2.set_attribute("cpf_masked", masked_cpf)
-                    span_t2.set_attribute("agents_called", [t["tool"] for t in trajectory_log])
-                    span_t2.set_attribute("hitl_triggered", True)
-                    span_t2.set_attribute("cost_brl", round(finops.estimated_cost_brl, 6))
-                    span_t2.end()
-                if span_t3:
-                    span_t3.set_attribute("cpf_masked", masked_cpf)
-                    span_t3.set_attribute("agents_called", [t["tool"] for t in trajectory_log])
-                    span_t3.set_attribute("hitl_triggered", True)
-                    span_t3.set_attribute("cost_brl", round(finops.estimated_cost_brl, 6))
-                    span_t3.end()
-                    
-                root_span.set_attribute("cpf_masked", masked_cpf)
-                root_span.set_attribute("agents_called", [t["tool"] for t in trajectory_log])
-                root_span.set_attribute("hitl_triggered", True)
-                root_span.set_attribute("cost_brl", round(finops.estimated_cost_brl, 6))
-                root_span.end()
-                
-                detach(token)
-
-                serialize_and_pause(state_dict, reason)
-                
-                tools_in_traj = [t["tool"] for t in trajectory_log]
-                if scenario == "hitl_required":
-                    if "decision_synthesize" not in tools_in_traj:
-                        new_traj = []
-                        handoff_step = None
-                        for step in trajectory_log:
-                            if step["tool"] == "handoff_to_human":
-                                handoff_step = step
-                            else:
-                                new_traj.append(step)
-                        new_traj.append({
-                            "turn": 4,
-                            "tool": "decision_synthesize",
-                            "args": {"request_id": request_id},
-                            "result_ok": True,
-                            "trace_id": trace_id
-                        })
-                        if handoff_step:
-                            handoff_step["turn"] = 5
-                            new_traj.append(handoff_step)
-                        trajectory_log = new_traj
-
-                processing_ms = int((time.time() - start) * 1000)
-                decision_record = {
+                sse_stream.publish_event(request_id, "hitl_required", {
                     "request_id": request_id,
                     "status": "pending_human_review",
-                    "decision": "pending",
-                    "requested_amount": amount,
-                    "approved_amount": None,
-                    "justification": f"reason: {reason}" if reason == "threshold_exceeded" else f"fallback_error {reason or ''}",
-                    "conditions": [],
-                    "trace_id": trace_id,
-                    "processing_time_ms": processing_ms,
-                    "agents_consulted": [t["tool"] for t in trajectory_log],
-                    "estimated_cost_brl": round(finops.estimated_cost_brl, 6),
-                    "_meta": {
-                        "loop_turns": turn,
-                        "trajectory": trajectory_log,
-                        "finops": finops.summary(),
-                        "hitl_state_saved": True,
-                        "process_exited_cleanly": True,
-                        "trace_id": trace_id,
-                        "hitl": {
-                            "state_saved": True,
-                            "process_exited_cleanly": True,
-                            "request_id": request_id,
-                            "expires_at": state_dict["expires_at"],
-                            "interrupt_event": {
-                                "type": "HITL_REQUIRED",
-                                "trace_id": traceparent
-                            }
-                        },
-                        "auth": {
-                            "agents_tokens_used": gateway_auth.agents_tokens_used,
-                            "used_fallback_token": gateway_auth.used_fallback_token
-                        }
-                    }
-                }
-                
-                decision_record["_meta"]["finops"]["trace_id"] = traceparent
-                decision_record["_meta"]["finops"]["span_id"] = span_id_str
-                
-                if reason == "fallback_error" or scenario in ["bureau_error", "multi_error"]:
-                    decision_record["justification"] = "fallback_error devido à indisponibilidade de sub-agentes."
-                    if scenario == "multi_error" or "validate" in [t["tool"] for t in trajectory_log if not t["result_ok"]]:
-                        decision_record["justification"] += " Flags: bureau_unavailable, docs_unverified."
-                    else:
-                        decision_record["justification"] += " Flags: bureau_unavailable."
-                
-                save_episodic_memory(masked_cpf, decision_record)
-                return decision_record
-
-            if name == "decision_synthesize" and "bureau_result" not in args:
-                print("  [compliance-guard] Reconstruindo argumentos aninhados para decision_synthesize...")
-                # Recupera do agents com base no cenario atual
-                args["bureau_result"] = agents.bureau_get_score(applicant_masked_cpf=masked_cpf, request_id=args.get("request_id") or request_id, trace_id=trace_id)
-                args["documents_result"] = agents.documents_validate(document_urls=[], applicant_name="João da Silva", request_id=args.get("request_id") or request_id, trace_id=trace_id)
-                args["risk_result"] = agents.risk_evaluate(bureau_score=780, income_value=8000, requested_amount=amount, request_id=args.get("request_id") or request_id, trace_id=trace_id)
-                args["compliance_result"] = agents.compliance_check(applicant_masked_cpf=masked_cpf, request_id=args.get("request_id") or request_id, trace_id=trace_id)
-                args["requested_amount"] = args.get("requested_amount") or amount
-
-            # Transition spans:
-            if name == "compliance_check":
-                if span_t1:
-                    span_t1.set_attribute("cpf_masked", masked_cpf)
-                    span_t1.set_attribute("agents_called", [t["tool"] for t in trajectory_log])
-                    span_t1.set_attribute("hitl_triggered", False)
-                    span_t1.set_attribute("cost_brl", round(finops.estimated_cost_brl, 6))
-                    span_t1.end()
-                    span_t1 = None
-                if not span_t2:
-                    span_t2 = tracer.start_span("analysis.t2")
-                    current_span = span_t2
-            elif name == "decision_synthesize":
-                if span_t2:
-                    span_t2.set_attribute("cpf_masked", masked_cpf)
-                    span_t2.set_attribute("agents_called", [t["tool"] for t in trajectory_log])
-                    span_t2.set_attribute("hitl_triggered", False)
-                    span_t2.set_attribute("cost_brl", round(finops.estimated_cost_brl, 6))
-                    span_t2.end()
-                    span_t2 = None
-                if not span_t3:
-                    span_t3 = tracer.start_span("analysis.t3")
-                    current_span = span_t3
-
-            turn_label = "T1" if name in ("bureau_get_score", "documents_validate", "risk_evaluate") \
-                         else "T2" if name == "compliance_check" \
-                         else "T3"
-            started_event = {
-                "type": "agent_started",
-                "request_id": request_id,
-                "agent": name,
-                "turn": turn_label,
-            }
-            sse_stream.emit_event(request_id, started_event)
-            db.save_event(request_id, started_event)
-
-            print(f"  [tool] {name}({json.dumps(args, ensure_ascii=False)})")
-            tool_start_time = time.time()
-            try:
-                result = execute_tool(name, args, agents, trace_id=trace_id, masked_cpf=masked_cpf)
-            except Exception as e:
-                print(f"  [tool] ERRO em {name}: {e}")
-                error_event = {
-                    "type": "analysis_error",
-                    "request_id": request_id,
-                    "error": f"agent_{name}_failed",
-                    "details": str(e),
-                }
-                sse_stream.emit_event(request_id, error_event)
-                db.save_event(request_id, error_event)
-                sse_stream.close_channel(request_id)
-                # Re-lança para interromper o fluxo (capturado pelo OrchestratorThread)
-                raise
-            tool_latency_ms = int((time.time() - tool_start_time) * 1000)
-
-            agent_event = {
-                "type": "agent_completed",
-                "request_id": request_id,
-                "agent": name,
-                "turn": turn_label,
-                "status": "success" if result.get("status") not in ("error", "timeout", "fail") else "error",
-                "latency_ms": tool_latency_ms,
-            }
-            # Enriquecimento seguro por agente (sem dados sensíveis)
-            if name == "bureau_get_score" and "score" in result:
-                agent_event["score"] = result["score"]
-            if name == "risk_evaluate" and "risk_tier" in result:
-                agent_event["risk_tier"] = result["risk_tier"]
-            if name == "compliance_check":
-                agent_event["kyc_approved"] = result.get("kyc_approved", False)
-                if not result.get("kyc_approved", True) or not result.get("pld_clear", True):
-                    compliance_reproved = True
-            sse_stream.emit_event(request_id, agent_event)
-            # Persistir no SQLite para replay
-            db.save_event(request_id, agent_event)
-            
-            res_status = result.get("status", "ok") if isinstance(result, dict) else "ok"
-            if res_status == "timeout":
-                tool_outcome = "timeout"
-            elif res_status == "error" or (isinstance(result, dict) and (not result.get("kyc_approved", True) or not result.get("pld_clear", True))):
-                tool_outcome = "fail"
-            else:
-                tool_outcome = "success"
-                
-            if current_span:
-                current_span.add_event("tool_call", {
-                    "agent": name,
-                    "result": tool_outcome,
-                    "latency_ms": tool_latency_ms
+                    "reason": args.get("reason", "threshold_exceeded"),
+                    "trace_id": trace_id
                 })
 
-            # --- CORREÇÃO ENVELOPE (fixes MALFORMED_FUNCTION_CALL) ---
-            # Envelopamos o resultado exatamente no formato que o Sensedia AI Gateway retorna em produção.
-            enveloped_result = {
-                f"{name}_response": {
-                    "results": [
-                        result
-                    ]
-                }
-            }
+                return hitl_result
+            else:
+                raw_result = execute_tool(name, args, agents, trace_id=trace_id, masked_cpf=masked_cpf)
+                enveloped_result = {f"{name}_response": {"results": [raw_result]}}
+                result_ok = raw_result.get("status") != "error"
+
             print(f"  [tool] ← {json.dumps(enveloped_result, ensure_ascii=False)}")
 
-            # Calcula o turno lógico esperado pelas asserções de trajetória do PromptFoo
             logical_turn = turn
             if name in ["bureau_get_score", "documents_validate"]:
                 logical_turn = 1
@@ -1443,29 +1161,23 @@ def run_orchestrator(scenario: str, amount: float, request_id: str = None, appli
                 logical_turn = 3
             elif name == "decision_synthesize":
                 logical_turn = 4
-            elif name == "handoff_to_human":
-                # Se algum bureau ou doc falhou, o handoff é no turno 2 (short-circuit)
-                bureau_failed = any(t["tool"] == "bureau_get_score" and not t["result_ok"] for t in trajectory_log)
-                docs_failed = any(t["tool"] == "documents_validate" and not t["result_ok"] for t in trajectory_log)
-                if bureau_failed or docs_failed:
-                    logical_turn = 2
-                else:
-                    logical_turn = 5
 
             trajectory_log.append({
                 "turn":      logical_turn,
                 "tool":      name,
                 "args":      args,
-                "result_ok": result.get("status") != "error",
+                "result_ok": result_ok,
                 "trace_id":  trace_id,
             })
 
-            messages.append({
-                "role":        "tool",
-                "tool_call_id": tc.id,
-                "name":        name,
-                "content":     json.dumps(enveloped_result),
-            })
+            tool_results_list.append(f"[Retorno de {name}]: {json.dumps(enveloped_result, ensure_ascii=False)}")
+
+        # Adiciona o resultado acumulado no turno como mensagem do usuário para o próximo ciclo
+        combined_tool_text = "\n".join(tool_results_list)
+        messages.append({
+            "role": "user",
+            "content": f"Resultados das ferramentas executadas no Turno {turn}:\n{combined_tool_text}\n\nContinue para o próximo passo da sequência obrigatória."
+        })
 
     else:
         # MAX_TURNS atingido sem o modelo encerrar — safety brake

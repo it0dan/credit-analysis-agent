@@ -14,8 +14,9 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-# Adiciona diretório pai ao path para importações locais corretas
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
 
 import hitl_store
 import db
@@ -322,8 +323,8 @@ class ResumeHTTPHandler(BaseHTTPRequestHandler):
             self._send_cors_headers()
             self.end_headers()
 
-            # Criamos o request_id oficial
-            request_id = str(uuid.uuid4())[:8]
+            # Criamos o request_id oficial (UUID v4 completo para ser válido perante a validação do Zod no compliance-agent)
+            request_id = str(uuid.uuid4())
 
             # Inicializa o canal SSE
             sse_stream.create_channel(request_id)
