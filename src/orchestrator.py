@@ -992,7 +992,8 @@ def run_orchestrator(scenario: str, amount: float, request_id: str = None, appli
         print(f"  [debug-messages-full-{turn}]\n{json.dumps(messages, indent=2)}")
 
         response = None
-        for attempt in range(1, 5):
+        delays = [3, 5, 8, 10, 12, 15, 18, 20]
+        for attempt in range(1, len(delays) + 1):
             try:
                 response = client.chat.completions.create(
                     model=MODEL,
@@ -1008,14 +1009,25 @@ def run_orchestrator(scenario: str, amount: float, request_id: str = None, appli
                     gateway_auth.invalidate_token()
                     client = build_llm_client()
                 elif "429" in err_str or "rate limit" in err_str.lower():
-                    wait_sec = attempt * 2
-                    print(f"  [rate-limit-retry] 429 Rate Limit detectado. Aguardando {wait_sec}s (tentativa {attempt}/4)...")
+                    wait_sec = delays[attempt - 1]
+                    print(f"  [rate-limit-retry] 429 Rate Limit detectado. Aguardando {wait_sec}s (tentativa {attempt}/{len(delays)})...")
+                    try:
+                        # Emite heartbeat no SSE para evitar que a conexão HTTP do navegador caia por timeout
+                        sse_stream.emit_event(request_id, {
+                            "type": "agent_started",
+                            "request_id": request_id,
+                            "trace_id": trace_id,
+                            "agent": "bureau_get_score" if turn == 1 else "risk_evaluate",
+                            "turn": f"T{turn}"
+                        })
+                    except Exception:
+                        pass
                     time.sleep(wait_sec)
                 else:
                     raise err
 
         if not response:
-            raise RuntimeError("Falha ao comunicar com o Gateway LLM após múltiplas tentativas.")
+            raise RuntimeError("Falha ao comunicar com o Gateway LLM após múltiplas tentativas de retry.")
 
         finops.record(response.usage)
         finops.log()
