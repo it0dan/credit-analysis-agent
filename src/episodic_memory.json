@@ -2142,6 +2142,32 @@
       "trace_id": "f283909d-caad-46fa-b508-3154c79eb2dd",
       "finops_cost_brl": 0.001449,
       "timestamp": "2026-07-29T14:48:32Z"
+    },
+    {
+      "request_id": "25838153-16e5-45eb-8c53-093fb89f579e",
+      "cpf_masked": "XXX.XXX.789-00",
+      "status": "pre_approved",
+      "decision": "pre_approved",
+      "requested_amount": 25000.0,
+      "approved_amount": 25000.0,
+      "justification": "Score bureau 780 sem restrições, identidade e renda (R$ 8.000) confirmadas, risco interno baixo (PD 4%) e compliance aprovado. Pré-aprovação no valor solicitado.",
+      "trace_id": "ae99ae0a-5f45-42ff-841e-3cbfa25b056e",
+      "finops_cost_brl": 0.001447,
+      "timestamp": "2026-07-29T14:51:58Z"
+    }
+  ],
+  "XXX.XXX.767-56": [
+    {
+      "request_id": "426e726c-eb8c-4d92-984c-a61b291fa1e9",
+      "cpf_masked": "XXX.XXX.767-56",
+      "status": "pre_approved",
+      "decision": "pre_approved",
+      "requested_amount": 5454.54,
+      "approved_amount": 5454.54,
+      "justification": "Score bureau 780 sem restrições, identidade e renda (R$ 8.000) confirmadas, risco baixo (PD 4%) e compliance aprovado. Solicitação pré-aprovada no valor integral.",
+      "trace_id": "66426811-97d3-414f-ace3-4faa56922082",
+      "finops_cost_brl": 0.001446,
+      "timestamp": "2026-07-29T14:49:41Z"
     }
   ]
 }

@@ -1136,8 +1136,20 @@ def run_orchestrator(scenario: str, amount: float, request_id: str = None, appli
             name = tc.function.name
             args = json.loads(tc.function.arguments)
 
+            t_start = time.time()
+            start_evt = {
+                "type": "agent_started",
+                "request_id": request_id,
+                "trace_id": trace_id,
+                "agent": name,
+                "turn": "T1" if name in ["bureau_get_score", "documents_validate"] else ("T2" if name == "risk_evaluate" else ("T3" if name == "compliance_check" else "T3"))
+            }
+            sse_stream.emit_event(request_id, start_evt)
+            db.save_event(request_id, start_evt)
+
             if name == "decision_synthesize" and compliance_reproved:
                 print("  [compliance-guard] decision_synthesize bloqueado: compliance reprovado.")
+                raw_result = {"status": "error", "error": "not_applicable", "reason": "compliance_reproved"}
                 enveloped_result = {"status": "error", "error": "not_applicable", "reason": "compliance_reproved"}
                 result_ok = False
             elif name == "handoff_to_human":
@@ -1176,6 +1188,25 @@ def run_orchestrator(scenario: str, amount: float, request_id: str = None, appli
                 raw_result = execute_tool(name, args, agents, trace_id=trace_id, masked_cpf=masked_cpf)
                 enveloped_result = {f"{name}_response": {"results": [raw_result]}}
                 result_ok = raw_result.get("status") != "error"
+
+            t_latency = int((time.time() - t_start) * 1000)
+            comp_evt = {
+                "type": "agent_completed",
+                "request_id": request_id,
+                "trace_id": trace_id,
+                "agent": name,
+                "status": "success" if result_ok else "error",
+                "latency_ms": t_latency
+            }
+            if name == "bureau_get_score" and isinstance(raw_result, dict):
+                comp_evt["score"] = raw_result.get("score")
+            elif name == "risk_evaluate" and isinstance(raw_result, dict):
+                comp_evt["risk_tier"] = raw_result.get("risk_tier")
+            elif name == "compliance_check" and isinstance(raw_result, dict):
+                comp_evt["kyc_approved"] = raw_result.get("kyc_approved")
+
+            sse_stream.emit_event(request_id, comp_evt)
+            db.save_event(request_id, comp_evt)
 
             print(f"  [tool] ← {json.dumps(enveloped_result, ensure_ascii=False)}")
 
@@ -1355,7 +1386,17 @@ def run_orchestrator(scenario: str, amount: float, request_id: str = None, appli
     root_span.set_attribute("cost_brl", round(finops.estimated_cost_brl, 6))
     root_span.end()
     
-    detach(token)
+    # Emite os eventos de conclusão para atualizar o frontend em tempo real
+    done_event = {
+        "type": "analysis_done",
+        "request_id": request_id,
+        "status": decision.get("status", "pre_approved"),
+        "decision": decision.get("decision", "pre_approved"),
+        "trace_id": trace_id,
+        "finops_cost_brl": round(finops.estimated_cost_brl, 6)
+    }
+    sse_stream.emit_event(request_id, done_event)
+    db.save_event(request_id, done_event)
 
     # Persiste na Memória Episódica
     save_episodic_memory(masked_cpf, decision)
