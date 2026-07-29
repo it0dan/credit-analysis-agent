@@ -991,26 +991,31 @@ def run_orchestrator(scenario: str, amount: float, request_id: str = None, appli
         print(f"  [llm] Turno {turn}: chamando Gateway...")
         print(f"  [debug-messages-full-{turn}]\n{json.dumps(messages, indent=2)}")
 
-        try:
-            response = client.chat.completions.create(
-                model=MODEL,
-                messages=messages,
-                tools=TOOLS,
-                temperature=0,
-            )
-        except Exception as err:
-            if "401" in str(err) or "API key" in str(err):
-                print("  [auth-retry] Token 401 detectado. Invalidando token e obtendo novo client...")
-                gateway_auth.invalidate_token()
-                client = build_llm_client()
+        response = None
+        for attempt in range(1, 5):
+            try:
                 response = client.chat.completions.create(
                     model=MODEL,
                     messages=messages,
                     tools=TOOLS,
                     temperature=0,
                 )
-            else:
-                raise err
+                break
+            except Exception as err:
+                err_str = str(err)
+                if "401" in err_str or "API key" in err_str:
+                    print("  [auth-retry] Token 401 detectado. Invalidando token e obtendo novo client...")
+                    gateway_auth.invalidate_token()
+                    client = build_llm_client()
+                elif "429" in err_str or "rate limit" in err_str.lower():
+                    wait_sec = attempt * 2
+                    print(f"  [rate-limit-retry] 429 Rate Limit detectado. Aguardando {wait_sec}s (tentativa {attempt}/4)...")
+                    time.sleep(wait_sec)
+                else:
+                    raise err
+
+        if not response:
+            raise RuntimeError("Falha ao comunicar com o Gateway LLM após múltiplas tentativas.")
 
         finops.record(response.usage)
         finops.log()
@@ -1162,27 +1167,28 @@ def run_orchestrator(scenario: str, amount: float, request_id: str = None, appli
                     "trace_id":  trace_id,
                 })
                 print("  [hitl] Chamando handoff_to_human. Pausando execução e salvando estado...")
+                reason_str = args.get("reason", "threshold_exceeded")
                 state_data = {
                     "request_id":     request_id,
                     "trace_id":       trace_id,
                     "scenario":       scenario,
                     "amount":         amount,
                     "applicant_cpf":  applicant_cpf,
+                    "cpf_masked":     masked_cpf,
+                    "expires_at":     int(time.time()) + 86400,
                     "turn":           turn,
                     "messages":       messages,
                     "trajectory_log": trajectory_log,
                 }
-                hitl_result = serialize_and_pause(request_id, state_data, reason=args.get("reason", "threshold_exceeded"))
-                hitl_result["trace_id"] = trace_id
-                hitl_result["request_id"] = request_id
+                serialize_and_pause(state_data, reason=reason_str)
 
-                sse_stream.publish_event(request_id, "hitl_required", {
-                    "request_id": request_id,
+                hitl_result = {
                     "status": "pending_human_review",
-                    "reason": args.get("reason", "threshold_exceeded"),
-                    "trace_id": trace_id
-                })
-
+                    "decision": "pending",
+                    "reason": reason_str,
+                    "trace_id": trace_id,
+                    "request_id": request_id
+                }
                 return hitl_result
             else:
                 raw_result = execute_tool(name, args, agents, trace_id=trace_id, masked_cpf=masked_cpf)
